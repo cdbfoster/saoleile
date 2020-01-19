@@ -1,0 +1,9 @@
+#!/bin/bash
+
+if [ -n "$1" ] && [ "$1" = "--release" ]; then
+    MODE="release"
+else
+    MODE="debug"
+fi
+
+adb install -r target/aarch64-linux-android/${MODE}/saoleile.apk

@@ -1,0 +1,12 @@
+[package]
+name = "jni-wrapper"
+version = "0.1.0"
+authors = ["Chris Foster <cdbfoster@gmail.com>"]
+edition = "2018"
+
+[dependencies]
+jni = { version = "0.14", default_features = false }
+saoleile = { path = "../../" }
+
+[lib]
+crate-type = ["cdylib"]

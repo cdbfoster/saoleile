@@ -1,0 +1,68 @@
+#!/bin/bash
+
+APK_NAME="saoleile.apk"
+
+# Use the latest API version. Override API_VERSION to build against a different version.
+if [ -z "$API_VERSION" ]; then
+    pushd $ANDROID_HOME/build-tools > /dev/null
+        versions=(*)
+        API_VERSION=${versions[-1]}
+    popd > /dev/null
+fi
+export API_VERSION
+export API_MAJOR_VERSION=${API_VERSION%%.*}
+
+if [ -n "$1" ] && [ "$1" = "--release" ]; then
+    MODE="Release"
+else
+    MODE="Debug"
+fi
+export MODE
+
+PROJECT_ROOT=$(pwd)
+BUILD_DIR=$PROJECT_ROOT/target/aarch64-linux-android/${MODE,}
+
+PATH=$ANDROID_HOME/build-tools/$API_VERSION:$PATH
+PATH=$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin:$PATH
+
+pushd android/jni-wrapper > /dev/null
+    CARGO_BUILD_TARGET="aarch64-linux-android" \
+    CARGO_BUILD_TARGET_DIR="../../target" \
+    CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER="aarch64-linux-android${API_MAJOR_VERSION}-clang" \
+    cargo build "$@"
+popd > /dev/null
+
+JAVA_BUILD_DIR=$BUILD_DIR/build
+
+pushd $JAVA_BUILD_DIR > /dev/null
+    javac \
+        -cp $ANDROID_HOME/platforms/android-${API_MAJOR_VERSION}/android.jar \
+        -d . \
+        $(find $PROJECT_ROOT/android/src -name *.java)
+
+    dx --dex --output classes.dex $(find . -name *.class)
+
+    mkdir -p lib/arm64-v8a
+    cp $BUILD_DIR/libjni_wrapper.so lib/arm64-v8a
+
+    aapt \
+        package \
+        -F $BUILD_DIR/$APK_NAME \
+        -I $ANDROID_HOME/platforms/android-${API_MAJOR_VERSION}/android.jar \
+        -M $PROJECT_ROOT/android/AndroidManifest.xml \
+        -f
+
+    aapt add $BUILD_DIR/$APK_NAME classes.dex > /dev/null
+    aapt add $BUILD_DIR/$APK_NAME lib/arm64-v8a/libjni_wrapper.so > /dev/null
+
+    apksigner \
+        sign \
+        -ks $PROJECT_ROOT/android/debug.keystore \
+        --ks-key-alias androiddebugkey \
+        --ks-pass pass:android \
+        $BUILD_DIR/$APK_NAME
+popd > /dev/null
+
+unset API_VERSION
+unset API_MAJOR_VERSION
+unset MODE

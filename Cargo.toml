@@ -1,0 +1,23 @@
+[package]
+name = "saoleile"
+version = "0.1.0"
+authors = ["Chris Foster <cdbfoster@gmail.com>"]
+edition = "2018"
+
+[dependencies]
+egli = "0.5"
+gl = "0.14"
+
+[target.'cfg(not(target_os = "android"))'.dependencies]
+winit = "0.20"
+
+[target.'cfg(target_os = "android")'.dependencies]
+log-sys = { path = "android/log-sys" }
+
+[lib]
+name = "saoleile"
+path = "src/lib.rs"
+
+[[bin]]
+name = "saoleile"
+path = "src/run.rs"
