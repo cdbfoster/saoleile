@@ -87,7 +87,7 @@ impl<'a, T> LockedReference<'a, T> {
     }
 }
 
-impl<'a, T> Deref for LockedReference<'a, T> {
+impl<T> Deref for LockedReference<'_, T> {
     type Target = T;
 
     fn deref(&self) -> &T {
@@ -109,7 +109,7 @@ impl<'a, T> LockedReferenceMut<'a, T> {
     }
 }
 
-impl<'a, T> Deref for LockedReferenceMut<'a, T> {
+impl<T> Deref for LockedReferenceMut<'_, T> {
     type Target = T;
 
     fn deref(&self) -> &T {
@@ -117,7 +117,7 @@ impl<'a, T> Deref for LockedReferenceMut<'a, T> {
     }
 }
 
-impl<'a, T> DerefMut for LockedReferenceMut<'a, T> {
+impl<T> DerefMut for LockedReferenceMut<'_, T> {
     fn deref_mut(& mut self) -> &mut T {
         &mut *self.guard
     }
