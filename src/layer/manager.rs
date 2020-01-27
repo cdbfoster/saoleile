@@ -1,13 +1,15 @@
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex, RwLock, RwLockReadGuard};
+use std::sync::{Arc, Mutex, RwLock};
 use std::sync::mpsc;
 use std::thread;
 use std::time::{Duration, Instant};
 
 use crate::context::Context;
-use crate::event::Event;
+use crate::event::{Event, EventReceiver};
 use crate::event::core::{ContextEvent, QuitEvent};
 use crate::layer::Layer;
+use crate::util::{DynIter, Id, MapAccess};
+use crate::util::view_lock::{LockedView, LockedViewMut, ViewLock};
 
 pub struct LayerManager {
     events: Mutex<mpsc::Sender<Box<dyn Event>>>,
@@ -34,22 +36,30 @@ impl LayerManager {
         }
     }
 
-    pub fn send_event(&self, event: Box<dyn Event>) {
-        self.events.lock().unwrap().send(event).ok();
-    }
-
-    pub fn get_layers(&self) -> RwLockReadGuard<LayerStack> {
-        self.layers.read().unwrap()
-    }
-
     pub fn shutdown(&self) {
         let mut running = self.running.lock().unwrap();
 
         if *running {
-            self.send_event(Box::new(QuitEvent {}));
+            self.process_event(Box::new(QuitEvent {}));
             self.thread.lock().unwrap().take().unwrap().join().ok();
             *running = false;
         }
+    }
+}
+
+impl EventReceiver for LayerManager {
+    fn process_event(&self, event: Box<dyn Event>) {
+        self.events.lock().unwrap().send(event).ok();
+    }
+}
+
+impl<'a> ViewLock<'a, Box<dyn Layer>, LayerStack> for LayerManager {
+    fn lock_view(&'a self) -> LockedView<'a, Box<dyn Layer>, LayerStack> {
+        LockedView::new(self.layers.read().unwrap())
+    }
+
+    fn lock_view_mut(&'a self) -> LockedViewMut<'a, Box<dyn Layer>, LayerStack> {
+        LockedViewMut::new(self.layers.write().unwrap())
     }
 }
 
@@ -113,15 +123,8 @@ fn layer_manager_layer_thread(receiver: mpsc::Receiver<Box<dyn Event>>, context:
         }
 
         if accumulated_time > ITERATION_NS as u128 {
-            let layer_stack_guard = context.layer_manager.get_layers();
-            let layer_stack = &*layer_stack_guard;
-
             let mut passed_events = Vec::new();
-
-            for layer in layer_stack.layers.iter() {
-                let mut layer_guard = layer.write().unwrap();
-                let layer = &mut *layer_guard;
-
+            for mut layer in context.layer_manager.lock_view_mut().iter_mut() {
                 passed_events = layer.filter_gather_events(&context, passed_events);
             }
 
@@ -142,55 +145,61 @@ fn layer_manager_layer_thread(receiver: mpsc::Receiver<Box<dyn Event>>, context:
     }
 }
 
-pub struct LayerStack {
+struct LayerStack {
     layers: Vec<Arc<RwLock<Box<dyn Layer>>>>,
-    name_map: HashMap<String, Arc<RwLock<Box<dyn Layer>>>>,
+    id_map: HashMap<Id, Arc<RwLock<Box<dyn Layer>>>>,
 }
 
 impl LayerStack {
     fn new() -> Self {
         Self {
             layers: Vec::new(),
-            name_map: HashMap::new(),
+            id_map: HashMap::new(),
         }
     }
 
     fn push(&mut self, layer: Box<dyn Layer>) -> Result<(), String> {
-        let name = layer.get_name();
+        let id = layer.get_id();
 
-        if self.name_map.contains_key(&name) {
-            return Err(format!("LayerStack::push: layer \"{}\" already exists", name));
+        if self.id_map.contains_key(&id) {
+            return Err(format!("LayerStack::push: layer \"{}\" already exists", id));
         }
 
         let layer = Arc::new(RwLock::new(layer));
 
         self.layers.push(layer.clone());
-        self.name_map.insert(name, layer);
+        self.id_map.insert(id, layer);
 
         Ok(())
     }
 
-    fn remove(&mut self, name: &str) -> Result<(), String> {
+    fn remove(&mut self, id: Id) -> Result<(), String> {
         let old_length = self.layers.len();
 
-        self.layers.retain(|x| x.read().unwrap().get_name() != name);
+        self.layers.retain(|x| x.read().unwrap().get_id() != id);
 
         if self.layers.len() == old_length {
-            Err(format!("LayerStack::remove: layer \"{}\" does not exist", name))
+            Err(format!("LayerStack::remove: layer \"{}\" does not exist", id))
         } else {
             Ok(())
         }
     }
+}
 
-    pub fn get(&self, name: &str) -> Result<Arc<RwLock<Box<dyn Layer>>>, String> {
-        if let Some(layer) = self.name_map.get(&String::from(name)) {
-            Ok(layer.clone())
+impl MapAccess<Arc<RwLock<Box<dyn Layer>>>> for LayerStack {
+    fn get(&self, id: Id) -> Result<&Arc<RwLock<Box<dyn Layer>>>, String> {
+        if let Some(layer) = self.id_map.get(&id) {
+            Ok(layer)
         } else {
-            Err(format!("LayerStack::get: layer \"{}\" does not exist", name))
+            Err(format!("LayerStack::get: layer \"{}\" does not exist", id))
         }
     }
+}
 
-    pub fn iter(&self) -> impl Iterator<Item = &Arc<RwLock<Box<dyn Layer>>>> {
-        self.layers.iter()
+impl<'a> DynIter<'a> for LayerStack {
+    type Item = Arc<RwLock<Box<dyn Layer>>>;
+
+    fn dyn_iter(&'a self) -> Box<dyn Iterator<Item = &'a Self::Item> + 'a> {
+        Box::new(self.layers.iter())
     }
 }

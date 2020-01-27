@@ -4,6 +4,10 @@ pub trait Event: AsAny + Send {
 
 }
 
+pub trait EventReceiver {
+    fn process_event(&self, event: Box<dyn Event>);
+}
+
 pub mod core {
     use std::sync::Arc;
 
