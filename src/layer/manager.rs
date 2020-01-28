@@ -204,8 +204,8 @@ impl LayerStack {
 }
 
 impl MapAccess<Arc<RwLock<Box<dyn Layer>>>> for LayerStack {
-    fn get(&self, id: Id) -> Result<&Arc<RwLock<Box<dyn Layer>>>, String> {
-        if let Some(layer) = self.id_map.get(&id) {
+    fn get(&self, id: &Id) -> Result<&Arc<RwLock<Box<dyn Layer>>>, String> {
+        if let Some(layer) = self.id_map.get(id) {
             Ok(layer)
         } else {
             Err(format!("LayerStack::get: layer \"{}\" does not exist", id))

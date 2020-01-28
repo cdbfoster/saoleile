@@ -30,7 +30,7 @@ where
         }
     }
 
-    pub fn get(&'a self, id: Id) -> Result<impl Deref<Target = T> + 'a, String> {
+    pub fn get(&'a self, id: &Id) -> Result<impl Deref<Target = T> + 'a, String> {
         Ok(LockedReference::new(self.locked_container.get(id)?))
     }
 
@@ -56,11 +56,11 @@ where
         }
     }
 
-    pub fn get(&'a self, id: Id) -> Result<impl Deref<Target = T> + 'a, String> {
+    pub fn get(&'a self, id: &Id) -> Result<impl Deref<Target = T> + 'a, String> {
         Ok(LockedReference::new(self.locked_container.get(id)?))
     }
 
-    pub fn get_mut(&'a self, id: Id) -> Result<impl DerefMut<Target = T> + 'a, String> {
+    pub fn get_mut(&'a self, id: &Id) -> Result<impl DerefMut<Target = T> + 'a, String> {
         Ok(LockedReferenceMut::new(self.locked_container.get(id)?))
     }
 
