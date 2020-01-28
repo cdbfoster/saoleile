@@ -1,7 +1,9 @@
 #[macro_use]
 pub mod log_functions;
 
+pub mod component;
 pub mod context;
+pub mod entity;
 pub mod event;
 pub mod layer;
 pub mod util;
