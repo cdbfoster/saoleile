@@ -76,15 +76,16 @@ fn layer_manager_event_thread(receiver: mpsc::Receiver<Box<dyn Event>>, layers: 
     loop {
         let event = receiver.recv().expect("LayerManager event thread: can't receive event");
 
-        if let Some(context_event) = event.as_any().downcast_ref::<ContextEvent>() {
+        if event.as_any().is::<ContextEvent>() {
+            let context_event = *event.as_boxed_any().downcast::<ContextEvent>().unwrap();
+
             if layer_thread.is_none() {
                 log!("LayerManager event thread received a ContextEvent. Starting the layer thread.");
-                let context = context_event.context.clone();
 
                 let (sender, receiver) = mpsc::channel();
                 layer_thread_sender = Some(sender);
 
-                layer_thread = Some(thread::spawn(move || layer_manager_layer_thread(receiver, context)));
+                layer_thread = Some(thread::spawn(move || layer_manager_layer_thread(receiver, context_event.context)));
             } else {
                 log!(ERROR, "LayerManager event thread received a ContextEvent, though the layer thread has already been started.");
             }
