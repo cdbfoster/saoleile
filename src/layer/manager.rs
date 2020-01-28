@@ -7,7 +7,7 @@ use std::time::{Duration, Instant};
 use crate::context::Context;
 use crate::event::{Event, EventDispatcher};
 use crate::event::core::{ContextEvent, QuitEvent};
-use crate::layer::Layer;
+use crate::layer::{AddLayerEvent, Layer, RemoveLayerEvent};
 use crate::util::{DynIter, Id, MapAccess};
 use crate::util::view_lock::{LockedView, LockedViewMut, ViewLock};
 
@@ -76,7 +76,23 @@ fn layer_manager_event_thread(receiver: mpsc::Receiver<Box<dyn Event>>, layers: 
     loop {
         let event = receiver.recv().expect("LayerManager event thread: can't receive event");
 
-        if event.as_any().is::<ContextEvent>() {
+        if event.as_any().is::<AddLayerEvent>() {
+            let add_layer_event = *event.as_boxed_any().downcast::<AddLayerEvent>().unwrap();
+
+            let mut layers = layers.write().unwrap();
+            match layers.push(add_layer_event.layer) {
+                Err(message) => log!(ERROR, "LayerManager event thread error: {}", message),
+                _ => (),
+            }
+        } else if event.as_any().is::<RemoveLayerEvent>() {
+            let remove_layer_event = *event.as_boxed_any().downcast::<RemoveLayerEvent>().unwrap();
+
+            let mut layers = layers.write().unwrap();
+            match layers.remove(&remove_layer_event.id) {
+                Err(message) => log!(ERROR, "LayerManager event thread error: {}", message),
+                _ => (),
+            }
+        } else if event.as_any().is::<ContextEvent>() {
             let context_event = *event.as_boxed_any().downcast::<ContextEvent>().unwrap();
 
             if layer_thread.is_none() {
@@ -174,10 +190,10 @@ impl LayerStack {
         Ok(())
     }
 
-    fn remove(&mut self, id: Id) -> Result<(), String> {
+    fn remove(&mut self, id: &Id) -> Result<(), String> {
         let old_length = self.layers.len();
 
-        self.layers.retain(|x| x.read().unwrap().get_id() != id);
+        self.layers.retain(|x| x.read().unwrap().get_id() != *id);
 
         if self.layers.len() == old_length {
             Err(format!("LayerStack::remove: layer \"{}\" does not exist", id))
