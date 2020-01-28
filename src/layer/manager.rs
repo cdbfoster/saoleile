@@ -5,7 +5,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use crate::context::Context;
-use crate::event::{Event, EventReceiver};
+use crate::event::{Event, EventDispatcher};
 use crate::event::core::{ContextEvent, QuitEvent};
 use crate::layer::Layer;
 use crate::util::{DynIter, Id, MapAccess};
@@ -40,15 +40,15 @@ impl LayerManager {
         let mut running = self.running.lock().unwrap();
 
         if *running {
-            self.process_event(Box::new(QuitEvent {}));
+            self.dispatch_event(Box::new(QuitEvent {}));
             self.thread.lock().unwrap().take().unwrap().join().ok();
             *running = false;
         }
     }
 }
 
-impl EventReceiver for LayerManager {
-    fn process_event(&self, event: Box<dyn Event>) {
+impl EventDispatcher for LayerManager {
+    fn dispatch_event(&self, event: Box<dyn Event>) {
         self.events.lock().unwrap().send(event).ok();
     }
 }
