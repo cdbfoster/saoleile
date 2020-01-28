@@ -7,7 +7,7 @@ use std::time::{Duration, Instant};
 use crate::context::Context;
 use crate::event::{Event, EventDispatcher};
 use crate::event::core::{ContextEvent, QuitEvent};
-use crate::layer::{AddLayerEvent, Layer, RemoveLayerEvent};
+use crate::layer::{AddLayerEvent, Layer, LayerPosition, RemoveLayerEvent};
 use crate::util::{DynIter, Id, MapAccess};
 use crate::util::view_lock::{LockedView, LockedViewMut, ViewLock};
 
@@ -73,6 +73,8 @@ fn layer_manager_event_thread(receiver: mpsc::Receiver<Box<dyn Event>>, layers: 
     let mut layer_thread = None;
     let mut layer_thread_sender = None;
 
+    let mut context: Option<Arc<Context>> = None;
+
     loop {
         let event = receiver.recv().expect("LayerManager event thread: can't receive event");
 
@@ -80,23 +82,25 @@ fn layer_manager_event_thread(receiver: mpsc::Receiver<Box<dyn Event>>, layers: 
             let add_layer_event = *event.as_boxed_any().downcast::<AddLayerEvent>().unwrap();
 
             let mut layers = layers.write().unwrap();
-            match layers.push(add_layer_event.layer) {
+            match layers.push(add_layer_event.push, add_layer_event.pin, add_layer_event.layer) {
+                Ok(layer) => layer.write().unwrap().on_add(context.as_ref().unwrap()),
                 Err(message) => log!(ERROR, "LayerManager event thread error: {}", message),
-                _ => (),
             }
         } else if event.as_any().is::<RemoveLayerEvent>() {
             let remove_layer_event = *event.as_boxed_any().downcast::<RemoveLayerEvent>().unwrap();
 
             let mut layers = layers.write().unwrap();
             match layers.remove(&remove_layer_event.id) {
+                Ok(mut layer) => layer.on_remove(context.as_ref().unwrap()),
                 Err(message) => log!(ERROR, "LayerManager event thread error: {}", message),
-                _ => (),
             }
         } else if event.as_any().is::<ContextEvent>() {
             let context_event = *event.as_boxed_any().downcast::<ContextEvent>().unwrap();
 
             if layer_thread.is_none() {
                 log!("LayerManager event thread received a ContextEvent. Starting the layer thread.");
+
+                context = Some(context_event.context.clone());
 
                 let (sender, receiver) = mpsc::channel();
                 layer_thread_sender = Some(sender);
@@ -164,6 +168,8 @@ fn layer_manager_layer_thread(receiver: mpsc::Receiver<Box<dyn Event>>, context:
 
 struct LayerStack {
     layers: Vec<Arc<RwLock<Box<dyn Layer>>>>,
+    last_top: Option<usize>,
+    first_bottom: Option<usize>,
     id_map: HashMap<Id, Arc<RwLock<Box<dyn Layer>>>>,
 }
 
@@ -171,11 +177,13 @@ impl LayerStack {
     fn new() -> Self {
         Self {
             layers: Vec::new(),
+            last_top: None,
+            first_bottom: None,
             id_map: HashMap::new(),
         }
     }
 
-    fn push(&mut self, layer: Box<dyn Layer>) -> Result<(), String> {
+    fn push(&mut self, position: LayerPosition, pin: Option<LayerPosition>, layer: Box<dyn Layer>) -> Result<&Arc<RwLock<Box<dyn Layer>>>, String> {
         let id = layer.get_id();
 
         if self.id_map.contains_key(&id) {
@@ -183,23 +191,56 @@ impl LayerStack {
         }
 
         let layer = Arc::new(RwLock::new(layer));
+        self.id_map.insert(id.clone(), layer.clone());
 
-        self.layers.push(layer.clone());
-        self.id_map.insert(id, layer);
+        if let Some(pin) = pin {
+            match pin {
+                LayerPosition::Top => if let Some(last_top) = self.last_top {
+                    let i = match position {
+                        LayerPosition::Top => 0,
+                        LayerPosition::Bottom => last_top + 1,
+                    };
+                    self.layers.insert(i, layer);
+                    self.last_top = Some(last_top + 1);
+                } else {
+                    self.layers.insert(0, layer);
+                    self.last_top = Some(0);
+                },
+                LayerPosition::Bottom => if let Some(first_bottom) = self.first_bottom {
+                    let i = match position {
+                        LayerPosition::Top => first_bottom,
+                        LayerPosition::Bottom => self.layers.len(),
+                    };
+                    self.layers.insert(i, layer);
+                } else {
+                    self.first_bottom = Some(self.layers.len());
+                    self.layers.push(layer);
+                },
+            }
+        } else {
+            let i = match position {
+                LayerPosition::Top => self.last_top.map_or(0, |i| i + 1),
+                LayerPosition::Bottom => self.first_bottom.unwrap_or(self.layers.len()),
+            };
+            self.layers.insert(i, layer);
+            self.first_bottom = self.first_bottom.map(|i| i + 1);
+        }
 
-        Ok(())
+        self.get(&id)
     }
 
-    fn remove(&mut self, id: &Id) -> Result<(), String> {
-        let old_length = self.layers.len();
-
-        self.layers.retain(|x| x.read().unwrap().get_id() != *id);
-
-        if self.layers.len() == old_length {
-            Err(format!("LayerStack::remove: layer \"{}\" does not exist", id))
-        } else {
-            Ok(())
+    fn remove(&mut self, id: &Id) -> Result<Box<dyn Layer>, String> {
+        if !self.id_map.contains_key(id) {
+            return Err(format!("LayerStack::remove: layer \"{}\" does not exist", id))
         }
+
+        let index = self.layers.iter().enumerate().find(|&(_, x)| x.read().unwrap().get_id() == *id).map(|(i, _)| i);
+        if index.is_none() {
+            panic!("LayerStack is in an inconsistent state! Layer \"{}\" exists in id_map but not layers", id);
+        }
+
+        self.id_map.remove(id);
+        Ok(Arc::try_unwrap(self.layers.remove(index.unwrap())).unwrap().into_inner().unwrap())
     }
 }
 
