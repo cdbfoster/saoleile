@@ -7,7 +7,8 @@ use std::time::{Duration, Instant};
 use crate::context::Context;
 use crate::event::{Event, EventDispatcher};
 use crate::event::core::{ContextEvent, QuitEvent};
-use crate::layer::{AddLayerEvent, Layer, LayerPosition, RemoveLayerEvent};
+use crate::event::layer::{AddLayerEvent, LayerPosition, RemoveLayerEvent};
+use crate::layer::Layer;
 use crate::util::{DynIter, Id, MapAccess};
 use crate::util::view_lock::{LockedView, LockedViewMut, ViewLock};
 
@@ -166,7 +167,7 @@ fn layer_manager_layer_thread(receiver: mpsc::Receiver<Box<dyn Event>>, context:
     }
 }
 
-struct LayerStack {
+pub struct LayerStack {
     layers: Vec<Arc<RwLock<Box<dyn Layer>>>>,
     last_top: Option<usize>,
     first_bottom: Option<usize>,

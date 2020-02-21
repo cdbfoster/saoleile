@@ -12,23 +12,3 @@ pub trait Layer: Debug + Send + Sync {
     fn on_remove(&mut self, context: &Context);
     fn filter_gather_events(&mut self, context: &Context, incoming_events: Vec<Box<dyn Event>>) -> Vec<Box<dyn Event>>;
 }
-
-#[derive(Clone, Copy)]
-pub enum LayerPosition {
-    Top,
-    Bottom,
-}
-
-pub struct AddLayerEvent {
-    pub push: LayerPosition,
-    pub pin: Option<LayerPosition>,
-    pub layer: Box<dyn Layer>,
-}
-
-impl Event for AddLayerEvent { }
-
-pub struct RemoveLayerEvent {
-    pub id: Id,
-}
-
-impl Event for RemoveLayerEvent { }

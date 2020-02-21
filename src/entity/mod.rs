@@ -1,7 +1,8 @@
 use std::collections::HashMap;
 
-use crate::component::{AddComponentEvent, Component, ComponentEvent, RemoveComponentEvent};
+use crate::component::Component;
 use crate::event::{Event, EventReceiver};
+use crate::event::component::{AddComponentEvent, ComponentEvent, RemoveComponentEvent};
 use crate::util::Id;
 
 pub struct Entity {
@@ -79,22 +80,3 @@ impl EventReceiver for Entity {
         }
     }
 }
-
-pub struct EntityEvent {
-    pub destination: Id,
-    pub payload: Box<dyn Event>,
-}
-
-impl Event for EntityEvent { }
-
-pub struct AddEntityEvent {
-    pub entity: Entity,
-}
-
-impl Event for AddEntityEvent { }
-
-pub struct RemoveEntityEvent {
-    pub id: Id,
-}
-
-impl Event for RemoveEntityEvent { }
