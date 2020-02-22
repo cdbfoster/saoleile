@@ -1,10 +1,13 @@
 use std::collections::HashMap;
 
+use serde::{Deserialize, Serialize};
+
 use crate::component::Component;
 use crate::event::{Event, EventReceiver};
 use crate::event::component::{AddComponentEvent, ComponentEvent, RemoveComponentEvent};
 use crate::util::Id;
 
+#[derive(Deserialize, Serialize)]
 pub struct Entity {
     id: Id,
     components: HashMap<Id, Box<dyn Component>>,
@@ -60,7 +63,7 @@ impl EventReceiver for Entity {
             let component_event = *event.as_boxed_any().downcast::<ComponentEvent>().unwrap();
 
             match self.get_component_mut(&component_event.destination) {
-                Ok(component) => component.process_event(component_event.payload),
+                Ok(component) => component.process_event(component_event.payload.into()),
                 Err(message) => log!(ERROR, "entity \"{}\" event error: {}", self.id, message),
             }
         } else if event.as_any().is::<AddComponentEvent>() {

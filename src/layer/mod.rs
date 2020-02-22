@@ -5,7 +5,9 @@ use crate::event::Event;
 use crate::util::Id;
 
 pub mod manager;
+pub mod network;
 
+#[typetag::serde(tag = "layer")]
 pub trait Layer: Debug + Send + Sync {
     fn get_id(&self) -> Id;
     fn on_add(&mut self, context: &Context);

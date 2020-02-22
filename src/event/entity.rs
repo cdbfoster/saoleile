@@ -1,22 +1,30 @@
+use serde::{Deserialize, Serialize};
+
 use crate::entity::Entity;
-use crate::event::Event;
+use crate::event::NetworkEvent;
 use crate::util::Id;
 
+#[derive(Deserialize, Serialize)]
 pub struct EntityEvent {
     pub destination: Id,
-    pub payload: Box<dyn Event>,
+    pub payload: Box<dyn NetworkEvent>,
 }
 
-impl Event for EntityEvent { }
+#[typetag::serde]
+impl NetworkEvent for EntityEvent { }
 
+#[derive(Deserialize, Serialize)]
 pub struct AddEntityEvent {
     pub entity: Entity,
 }
 
-impl Event for AddEntityEvent { }
+#[typetag::serde]
+impl NetworkEvent for AddEntityEvent { }
 
+#[derive(Deserialize, Serialize)]
 pub struct RemoveEntityEvent {
     pub id: Id,
 }
 
-impl Event for RemoveEntityEvent { }
+#[typetag::serde]
+impl NetworkEvent for RemoveEntityEvent { }
