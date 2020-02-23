@@ -7,7 +7,6 @@ pub trait Event: AsAny + Send {
 }
 
 pub trait AsEvent {
-    fn as_event(&self) -> &dyn Event;
     fn as_boxed_event(self: Box<Self>) -> Box<dyn Event>;
 }
 
@@ -15,10 +14,6 @@ pub trait AsEvent {
 pub trait NetworkEvent: AsEvent + Event { }
 
 impl<T: 'static + NetworkEvent> AsEvent for T {
-    fn as_event(&self) -> &dyn Event {
-        self
-    }
-
     fn as_boxed_event(self: Box<Self>) -> Box<dyn Event> {
         self
     }

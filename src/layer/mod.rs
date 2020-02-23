@@ -15,7 +15,6 @@ pub trait Layer: Debug + Send + Sync {
 }
 
 pub trait AsLayer {
-    fn as_layer(&self) -> &dyn Layer;
     fn as_boxed_layer(self: Box<Self>) -> Box<dyn Layer>;
 }
 
@@ -23,10 +22,6 @@ pub trait AsLayer {
 pub trait NetworkLayer: AsLayer + Layer { }
 
 impl<T: 'static + NetworkLayer> AsLayer for T {
-    fn as_layer(&self) -> &dyn Layer {
-        self
-    }
-
     fn as_boxed_layer(self: Box<Self>) -> Box<dyn Layer> {
         self
     }
