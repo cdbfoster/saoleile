@@ -83,7 +83,7 @@ fn layer_manager_event_thread(receiver: mpsc::Receiver<Box<dyn Event>>, layers: 
             let add_layer_event = *event.as_boxed_any().downcast::<AddLayerEvent>().unwrap();
 
             let mut layers = layers.write().unwrap();
-            match layers.push(add_layer_event.push, add_layer_event.pin, add_layer_event.layer) {
+            match layers.push(add_layer_event.push, add_layer_event.pin, add_layer_event.layer.into()) {
                 Ok(layer) => layer.write().unwrap().on_add(context.as_ref().unwrap()),
                 Err(message) => log!(ERROR, "LayerManager event thread error: {}", message),
             }
