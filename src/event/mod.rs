@@ -1,7 +1,11 @@
 use crate::util::AsAny;
 
 pub trait Event: AsAny + Send {
-    fn as_network_event(self: Box<Self>) -> Option<Box<dyn NetworkEvent>> {
+    fn is_network_event(&self) -> bool {
+        false
+    }
+
+    fn as_boxed_network_event(self: Box<Self>) -> Option<Box<dyn NetworkEvent>> {
         None
     }
 }
@@ -20,7 +24,11 @@ impl<T: 'static + NetworkEvent> AsEvent for T {
 }
 
 impl<T: 'static + NetworkEvent> Event for T {
-    fn as_network_event(self: Box<Self>) -> Option<Box<dyn NetworkEvent>> {
+    fn is_network_event(&self) -> bool {
+        true
+    }
+
+    fn as_boxed_network_event(self: Box<Self>) -> Option<Box<dyn NetworkEvent>> {
         Some(self)
     }
 }
