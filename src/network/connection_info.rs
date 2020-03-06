@@ -4,8 +4,8 @@ use std::time::Instant;
 use crate::event::NetworkEvent;
 use crate::network::PacketHeader;
 
-const HIGH_FREQUENCY: u8 = 20;
-const LOW_FREQUENCY: u8 = 10;
+pub const HIGH_FREQUENCY: u8 = 20;
+pub const LOW_FREQUENCY: u8 = 10;
 
 pub const PING_SMOOTHING: u16 = 10;
 

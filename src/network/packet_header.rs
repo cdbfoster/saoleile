@@ -29,7 +29,7 @@ impl PacketHeader {
             part: u8::consume_next(&mut bytes)?,
             total: u8::consume_next(&mut bytes)?,
             sizes: {
-                let count = u8::consume_next(&mut bytes)? as usize;
+                let count = u16::consume_next(&mut bytes)? as usize;
                 let mut sizes = Vec::with_capacity(count);
                 for _ in 0..count {
                     sizes.push(u16::consume_next(&mut bytes)?);

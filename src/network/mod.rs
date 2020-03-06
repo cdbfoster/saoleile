@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use crate::event::NetworkEvent;
 use crate::event::network::{DisconnectEvent, DroppedNetworkEvent};
 
-use self::connection_info::{ConnectionInfo, PING_SMOOTHING, wrapped_distance};
+use self::connection_info::{ConnectionInfo, LOW_FREQUENCY, PING_SMOOTHING, wrapped_distance};
 use self::packet_header::PacketHeader;
 
 #[derive(Debug)]
@@ -27,6 +27,8 @@ pub struct NetworkInterface {
     whitelist: Arc<Mutex<Option<HashSet<SocketAddr>>>>,
 
     socket: UdpSocket,
+
+    running: Mutex<bool>,
 }
 
 impl NetworkInterface {
@@ -75,6 +77,7 @@ impl NetworkInterface {
             connections,
             whitelist,
             socket,
+            running: Mutex::new(true),
         }
     }
 
@@ -85,6 +88,31 @@ impl NetworkInterface {
 
     pub fn lock_receiver(&self) -> MutexGuard<mpsc::Receiver<(SocketAddr, Box<dyn NetworkEvent>)>> {
         self.receiver.lock().unwrap()
+    }
+
+    pub fn shutdown(&self) {
+        let mut running = self.running.lock().unwrap();
+
+        if *running {
+            let this_address = self.socket.local_addr().unwrap();
+            // Send a shutdown event to the send thread
+            self.send_event(this_address, Box::new(ShutdownEvent { }));
+            // Send a shutdown event to the receive thread
+            send_events(&self.socket, this_address, 0, 0, 0, &[Box::new(ShutdownEvent { })]);
+            // Send a shutdown event to the cleanup thread
+            self.cleanup.lock().unwrap().send(Box::new(ShutdownEvent { })).unwrap();
+
+            self.send_thread.lock().unwrap().take().unwrap().join().ok();
+            self.receive_thread.lock().unwrap().take().unwrap().join().ok();
+            self.cleanup_thread.lock().unwrap().take().unwrap().join().ok();
+            *running = false;
+        }
+    }
+}
+
+impl Drop for NetworkInterface {
+    fn drop(&mut self) {
+        self.shutdown();
     }
 }
 
@@ -100,13 +128,14 @@ fn network_interface_send_thread(
     let mut previous_time = Instant::now();
 
     'send: loop {
-        let current_time = Instant::now();
-        let delta_time = current_time.duration_since(previous_time);
-        previous_time = current_time;
-
-        // Handle any overdue buffers
-        {
+        let time_to_next_due = {
             let mut connections_guard = connections.lock().unwrap();
+
+            let current_time = Instant::now();
+            let delta_time = current_time.duration_since(previous_time);
+            previous_time = current_time;
+
+            // Handle any overdue buffers
             for (address, connection_info) in connections_guard.iter_mut() {
                 connection_info.send_accumulator += delta_time.as_nanos();
 
@@ -114,7 +143,7 @@ fn network_interface_send_thread(
                 if connection_info.send_accumulator >= iteration_ns {
                     // Send events that have piled up for this address
                     let current_buffer = buffer.remove(address).unwrap_or(Vec::new());
-                    send_events(&socket, *address, connection_info, current_buffer);
+                    send_events_over_connection(&socket, *address, current_buffer, connection_info);
 
                     connection_info.send_accumulator -= iteration_ns;
                     if connection_info.send_accumulator >= iteration_ns {
@@ -122,25 +151,22 @@ fn network_interface_send_thread(
                     }
                 }
             }
-        }
 
-        // Gather new events
-        let mut new_events = Vec::new();
-        loop {
-            if let Ok(event) = send_queue.try_recv() {
-                if event.1.as_any().is::<ShutdownEvent>() {
-                    log!("{} received a shutdown event.", thread::current().name().unwrap());
-                    break 'send;
+            // Gather new events
+            let mut new_events = Vec::new();
+            loop {
+                if let Ok(event) = send_queue.try_recv() {
+                    if event.1.as_any().is::<ShutdownEvent>() {
+                        log!("{} received a shutdown event.", thread::current().name().unwrap());
+                        break 'send;
+                    }
+                    new_events.push(event);
+                } else {
+                    break;
                 }
-                new_events.push(event);
-            } else {
-                break;
             }
-        }
 
-        // Get new events into buffers
-        {
-            let mut connections_guard = connections.lock().unwrap();
+            // Get new events into buffers
             for (destination, event) in new_events {
                 if !connections_guard.contains_key(&destination) {
                     log!("{}: Creating connection info for {}.", thread::current().name().unwrap(), destination);
@@ -149,16 +175,12 @@ fn network_interface_send_thread(
 
                 buffer.entry(destination).or_insert(Vec::new()).push(event);
             }
-        }
 
-        // Sleep till next due buffer
-        let current_time = Instant::now();
-        let delta_time = current_time.duration_since(previous_time);
-        previous_time = current_time;
+            let current_time = Instant::now();
+            let delta_time = current_time.duration_since(previous_time);
+            previous_time = current_time;
 
-        let time_to_next_due = {
-            let mut minimum_time = i128::MAX;
-            let mut connections_guard = connections.lock().unwrap();
+            let mut minimum_time = Duration::from_secs_f32(1.0 / LOW_FREQUENCY as f32).as_nanos() as i128;
             for (_, info) in connections_guard.iter_mut() {
                 info.send_accumulator += delta_time.as_nanos();
                 let iteration_ns = 1_000_000_000 as u128 / info.frequency as u128;
@@ -174,6 +196,8 @@ fn network_interface_send_thread(
             thread::sleep(Duration::from_nanos((time_to_next_due / 2) as u64));
         }
     }
+
+    log!("{} exiting.", thread::current().name().unwrap());
 }
 
 fn network_interface_receive_thread(
@@ -202,6 +226,8 @@ fn network_interface_receive_thread(
             receive_queue.send((sender, event)).unwrap();
         }
     }
+
+    log!("{} exiting.", thread::current().name().unwrap());
 }
 
 fn network_interface_cleanup_thread(
@@ -216,7 +242,6 @@ fn network_interface_cleanup_thread(
     const CONNECTION_TIMEOUT: Duration = Duration::from_secs(8);
 
     loop {
-        let now = Instant::now();
         let mut minimum_time_to_next_due = Duration::from_secs(1).as_nanos() as i128;
 
         {
@@ -228,7 +253,7 @@ fn network_interface_cleanup_thread(
                     let current_index = i - removed_indices;
                     let event = &connection_info.unacked_events[current_index];
 
-                    let elapsed = now.duration_since(event.1);
+                    let elapsed = Instant::now().duration_since(event.1);
                     if elapsed >= ACK_TIMEOUT {
                         let (sequences, _, dropped_event) = connection_info.unacked_events.remove(current_index);
                         log!("{}: Event in {:?} was never acked; considering it dropped.", thread::current().name().unwrap(), sequences);
@@ -253,7 +278,7 @@ fn network_interface_cleanup_thread(
                 // Purge incomplete payloads older than PAYLOAD_TIMEOUT
                 let incomplete_groups = connection_info.incomplete_payloads.keys().map(|k| k.clone()).collect::<Vec<_>>();
                 for group in incomplete_groups {
-                    let elapsed = now.duration_since(connection_info.incomplete_payloads.get(&group).unwrap().0);
+                    let elapsed = Instant::now().duration_since(connection_info.incomplete_payloads.get(&group).unwrap().0);
                     if elapsed >= PAYLOAD_TIMEOUT {
                         connection_info.incomplete_payloads.remove(&group);
                         log!("{}: Packet group {:?} was not completed; considering it dropped.", thread::current().name().unwrap(), group);
@@ -269,7 +294,7 @@ fn network_interface_cleanup_thread(
             // Purge connections that have been stale for over CONNECTION_TIMEOUT
             let last_response_times = connections_guard.iter().map(|(k, v)| (*k, v.last_response_time)).collect::<Vec<_>>();
             for (address, last_response_time) in last_response_times {
-                let elapsed = now.duration_since(last_response_time);
+                let elapsed = Instant::now().duration_since(last_response_time);
                 if elapsed >= CONNECTION_TIMEOUT {
                     connections_guard.remove(&address);
                     log!("{}: Connection {} has not responded in over {} seconds; considering it disconnected.", thread::current().name().unwrap(), address, CONNECTION_TIMEOUT.as_secs());
@@ -301,22 +326,41 @@ fn network_interface_cleanup_thread(
             }
         }
     }
+
+    log!("{} exiting.", thread::current().name().unwrap());
 }
 
 const MAX_PACKET_SIZE: usize = 1024;
 
-fn send_events(socket: &UdpSocket, address: SocketAddr, connection_info: &mut ConnectionInfo, mut events: Vec<Box<dyn NetworkEvent>>) {
+fn send_events_over_connection(socket: &UdpSocket, address: SocketAddr, mut events: Vec<Box<dyn NetworkEvent>>, connection_info: &mut ConnectionInfo) {
     let max_event_count = PacketHeader::max_event_count(MAX_PACKET_SIZE);
 
     if events.len() > max_event_count {
         for _ in (0..events.len()).step_by(max_event_count) {
             let overflow = events.split_off(events.len().min(max_event_count));
-            send_events(socket, address, connection_info, events);
+            send_events_over_connection(socket, address, events, connection_info);
             events = overflow;
         }
         return;
     }
 
+    let packet_count = send_events(
+        socket,
+        address,
+        connection_info.local_sequence,
+        connection_info.remote_sequence,
+        connection_info.ack,
+        &events,
+    );
+
+    let sequences = (0..packet_count as u16).map(|x| connection_info.local_sequence.wrapping_add(x)).collect::<Vec<_>>();
+    connection_info.local_sequence = connection_info.local_sequence.wrapping_add(packet_count as u16);
+
+    let now = Instant::now();
+    connection_info.unacked_events.extend(events.into_iter().map(|e| (sequences.clone(), now, e)));
+}
+
+fn send_events(socket: &UdpSocket, address: SocketAddr, local_sequence: u16, remote_sequence: u16, ack: u32, events: &[Box<dyn NetworkEvent>]) -> usize {
     let mut payload_buffer = Vec::with_capacity(MAX_PACKET_SIZE);
     let mut event_sizes = Vec::with_capacity(events.len());
     for event in events.iter() {
@@ -325,15 +369,14 @@ fn send_events(socket: &UdpSocket, address: SocketAddr, connection_info: &mut Co
         event_sizes.push((payload_buffer.len() - old_size) as u16);
     }
 
-    let packet_count = calculate_packet_count(events.len(), payload_buffer.len(), MAX_PACKET_SIZE);
+    let packet_count = calculate_packet_count(events.len(), payload_buffer.len());
 
-    let mut sequences = Vec::with_capacity(packet_count);
     let mut current_position = 0;
     for i in 0..packet_count {
         let header = PacketHeader {
-            sequence: connection_info.local_sequence,
-            ack_start: connection_info.remote_sequence,
-            ack: connection_info.ack,
+            sequence: local_sequence,
+            ack_start: remote_sequence,
+            ack: ack,
             part: i as u8,
             total: packet_count as u8,
             sizes: if i == 0 {
@@ -348,19 +391,16 @@ fn send_events(socket: &UdpSocket, address: SocketAddr, connection_info: &mut Co
         send_packet(socket, address, header, payload);
 
         current_position += payload.len();
-        sequences.push(connection_info.local_sequence);
-        connection_info.local_sequence += 1;
     }
 
     if current_position != payload_buffer.len() {
         log!(ERROR, "{}: There was a mismatch between packet count and payload bytes!", thread::current().name().unwrap());
     }
 
-    let now = Instant::now();
-    connection_info.unacked_events.extend(events.into_iter().map(|e| (sequences.clone(), now, e)));
+    packet_count
 }
 
-fn calculate_packet_count(event_count: usize, mut payload_size: usize, max_packet_size: usize) -> usize {
+fn calculate_packet_count(event_count: usize, mut payload_size: usize) -> usize {
     let mut packet_count = 0;
     let mut data_size = 0;
     loop {
@@ -372,7 +412,7 @@ fn calculate_packet_count(event_count: usize, mut payload_size: usize, max_packe
         });
         data_size += header_size;
 
-        let next_packet_boundary = (data_size / max_packet_size + 1) * max_packet_size;
+        let next_packet_boundary = (data_size / MAX_PACKET_SIZE + 1) * MAX_PACKET_SIZE;
         let packet_payload_size = payload_size.min(next_packet_boundary - data_size);
         data_size += packet_payload_size;
         payload_size -= packet_payload_size;
@@ -510,8 +550,11 @@ fn receive_events(
 
     if let Some((header, payload)) = decodable_events {
         let events = decode_events(header, payload);
-
-        Some((sender, events))
+        if !events.is_empty() {
+            Some((sender, events))
+        } else {
+            None
+        }
     } else {
         None
     }
