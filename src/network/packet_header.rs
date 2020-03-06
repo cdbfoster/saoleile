@@ -1,19 +1,22 @@
+use std::io::Write;
+
+use crate::network::connection_info::wrapped_distance;
 use crate::util::FromBytes;
 
 const MAGIC: u32 = 0xE7E7E44E;
 
 #[derive(Clone, Debug)]
 pub struct PacketHeader {
-    sequence: u16,
-    ack_start: u16,
-    ack: u32,
-    part: u8,
-    total: u8,
-    sizes: Vec<u16>,
+    pub sequence: u16,
+    pub ack_start: u16,
+    pub ack: u32,
+    pub part: u8,
+    pub total: u8,
+    pub sizes: Vec<u16>,
 }
 
 impl PacketHeader {
-    fn from_slice(mut bytes: &[u8]) -> Result<Self, String> {
+    pub fn from_slice_beginning(mut bytes: &[u8]) -> Result<Self, String> {
         let magic = u32::consume_next(&mut bytes)?;
         if magic != MAGIC {
             return Err("Wrong magic number on packet!".into());
@@ -36,25 +39,49 @@ impl PacketHeader {
         })
     }
 
-    fn to_vec(&self) -> Vec<u8> {
-        let mut bytes = Vec::with_capacity(self.size());
+    pub fn to_writer<W: Write>(&self, writer: &mut W) {
+        writer.write_all(&MAGIC.to_be_bytes()).unwrap();
 
-        bytes.extend_from_slice(&MAGIC.to_be_bytes());
-
-        bytes.extend_from_slice(&self.sequence.to_be_bytes());
-        bytes.extend_from_slice(&self.ack_start.to_be_bytes());
-        bytes.extend_from_slice(&self.ack.to_be_bytes());
-        bytes.push(self.part);
-        bytes.push(self.total);
-        bytes.push(self.sizes.len() as u8);
+        writer.write_all(&self.sequence.to_be_bytes()).unwrap();
+        writer.write_all(&self.ack_start.to_be_bytes()).unwrap();
+        writer.write_all(&self.ack.to_be_bytes()).unwrap();
+        writer.write_all(&[self.part]).unwrap();
+        writer.write_all(&[self.total]).unwrap();
+        writer.write_all(&(self.sizes.len() as u16).to_be_bytes()).unwrap();
         for x in &self.sizes {
-            bytes.extend_from_slice(&x.to_be_bytes());
+            writer.write_all(&x.to_be_bytes()).unwrap();
         }
-
-        bytes
     }
 
-    fn size(&self) -> usize {
-        4 + 2 + 2 + 4 + 1 + 1 + 1 + 2 * self.sizes.len()
+    pub fn size(&self) -> usize {
+        PacketHeader::size_by_events(self.sizes.len())
+    }
+
+    pub fn get_sequence_group(&self) -> Vec<u16> {
+        let start = self.sequence - self.part as u16;
+        let end = start + self.total as u16;
+        (start..end).collect()
+    }
+
+    pub fn acked(&self, sequences: &[u16]) -> bool {
+        fn sequence_acked(ack_start: u16, ack: u32, sequence: u16) -> bool {
+            let distance = wrapped_distance(sequence, ack_start);
+            if distance < 0 {
+                return false;
+            }
+
+            let mask: u32 = 0x00000001 << distance;
+            (ack & mask) != 0
+        }
+
+        sequences.iter().all(|&sequence| sequence_acked(self.ack_start, self.ack, sequence))
+    }
+
+    pub fn size_by_events(event_count: usize) -> usize {
+        4 + 2 + 2 + 4 + 1 + 1 + 2 + 2 * event_count
+    }
+
+    pub fn max_event_count(max_packet_size: usize) -> usize {
+        (max_packet_size - Self::size_by_events(0)) / 2
     }
 }
