@@ -7,7 +7,7 @@ use crate::event::{Event, EventReceiver};
 use crate::event::component::{AddComponentEvent, ComponentEvent, RemoveComponentEvent};
 use crate::util::Id;
 
-#[derive(Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct Entity {
     id: Id,
     components: HashMap<Id, Box<dyn Component>>,

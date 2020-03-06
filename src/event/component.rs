@@ -4,7 +4,7 @@ use crate::component::Component;
 use crate::event::NetworkEvent;
 use crate::util::Id;
 
-#[derive(Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct ComponentEvent {
     pub destination: Id,
     pub payload: Box<dyn NetworkEvent>,
@@ -13,7 +13,7 @@ pub struct ComponentEvent {
 #[typetag::serde]
 impl NetworkEvent for ComponentEvent { }
 
-#[derive(Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct AddComponentEvent {
     pub component: Box<dyn Component>,
 }
@@ -21,7 +21,7 @@ pub struct AddComponentEvent {
 #[typetag::serde]
 impl NetworkEvent for AddComponentEvent { }
 
-#[derive(Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct RemoveComponentEvent {
     pub id: Id,
 }

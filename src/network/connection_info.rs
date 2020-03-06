@@ -9,6 +9,7 @@ const LOW_FREQUENCY: u8 = 10;
 
 pub const PING_SMOOTHING: u16 = 10;
 
+#[derive(Debug)]
 pub struct ConnectionInfo {
     pub local_sequence: u16,
     pub remote_sequence: u16,

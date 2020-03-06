@@ -1,5 +1,6 @@
 use crate::layer::manager::LayerManager;
 
+#[derive(Debug)]
 pub struct Context {
     pub layer_manager: LayerManager,
 }

@@ -1,6 +1,8 @@
+use std::fmt::Debug;
+
 use crate::util::AsAny;
 
-pub trait Event: AsAny + Send {
+pub trait Event: AsAny + Debug + Send {
     fn is_network_event(&self) -> bool {
         false
     }

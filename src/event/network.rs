@@ -4,7 +4,13 @@ use serde::{Deserialize, Serialize};
 
 use crate::event::NetworkEvent;
 
-#[derive(Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize)]
+pub struct DisconnectEvent { }
+
+#[typetag::serde]
+impl NetworkEvent for DisconnectEvent { }
+
+#[derive(Debug, Deserialize, Serialize)]
 pub struct DroppedNetworkEvent {
     pub recipient: SocketAddr,
     pub event: Box<dyn NetworkEvent>,

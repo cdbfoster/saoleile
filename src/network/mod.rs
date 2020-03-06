@@ -13,6 +13,7 @@ use crate::event::network::{DisconnectEvent, DroppedNetworkEvent};
 use self::connection_info::{ConnectionInfo, PING_SMOOTHING, wrapped_distance};
 use self::packet_header::PacketHeader;
 
+#[derive(Debug)]
 pub struct NetworkInterface {
     sender: Mutex<mpsc::Sender<(SocketAddr, Box<dyn NetworkEvent>)>>,
     receiver: Mutex<mpsc::Receiver<(SocketAddr, Box<dyn NetworkEvent>)>>,
@@ -539,7 +540,7 @@ fn decode_events(header: PacketHeader, payload: Vec<u8>) -> Vec<Box<dyn NetworkE
     events
 }
 
-#[derive(Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize)]
 struct ShutdownEvent { }
 
 #[typetag::serde]

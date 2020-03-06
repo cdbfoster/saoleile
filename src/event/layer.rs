@@ -4,12 +4,13 @@ use crate::event::{Event, NetworkEvent};
 use crate::layer::{Layer, NetworkLayer};
 use crate::util::Id;
 
-#[derive(Clone, Copy, Deserialize, Serialize)]
+#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
 pub enum LayerPosition {
     Top,
     Bottom,
 }
 
+#[derive(Debug)]
 pub struct AddLayerEvent {
     pub push: LayerPosition,
     pub pin: Option<LayerPosition>,
@@ -18,7 +19,7 @@ pub struct AddLayerEvent {
 
 impl Event for AddLayerEvent { }
 
-#[derive(Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct AddNetworkLayerEvent {
     pub push: LayerPosition,
     pub pin: Option<LayerPosition>,
@@ -28,7 +29,7 @@ pub struct AddNetworkLayerEvent {
 #[typetag::serde]
 impl NetworkEvent for AddNetworkLayerEvent { }
 
-#[derive(Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct RemoveLayerEvent {
     pub id: Id,
 }

@@ -12,6 +12,7 @@ use crate::layer::Layer;
 use crate::util::{DynIter, Id, MapAccess};
 use crate::util::view_lock::{LockedView, LockedViewMut, ViewLock};
 
+#[derive(Debug)]
 pub struct LayerManager {
     events: Mutex<mpsc::Sender<Box<dyn Event>>>,
     layers: Arc<RwLock<LayerStack>>,
@@ -167,6 +168,7 @@ fn layer_manager_layer_thread(receiver: mpsc::Receiver<Box<dyn Event>>, context:
     }
 }
 
+#[derive(Debug)]
 pub struct LayerStack {
     layers: Vec<Arc<RwLock<Box<dyn Layer>>>>,
     last_top: Option<usize>,

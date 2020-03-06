@@ -156,7 +156,7 @@ pub mod client {
     }
 }
 
-#[derive(Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize)]
 struct ShutdownListenerEvent { }
 
 #[typetag::serde]

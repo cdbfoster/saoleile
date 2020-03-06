@@ -4,7 +4,7 @@ use crate::entity::Entity;
 use crate::event::NetworkEvent;
 use crate::util::Id;
 
-#[derive(Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct EntityEvent {
     pub destination: Id,
     pub payload: Box<dyn NetworkEvent>,
@@ -13,7 +13,7 @@ pub struct EntityEvent {
 #[typetag::serde]
 impl NetworkEvent for EntityEvent { }
 
-#[derive(Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct AddEntityEvent {
     pub entity: Entity,
 }
@@ -21,7 +21,7 @@ pub struct AddEntityEvent {
 #[typetag::serde]
 impl NetworkEvent for AddEntityEvent { }
 
-#[derive(Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct RemoveEntityEvent {
     pub id: Id,
 }
