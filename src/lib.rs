@@ -1,5 +1,5 @@
 #[macro_use]
-pub mod log_functions;
+pub mod log;
 
 pub mod component;
 pub mod context;
