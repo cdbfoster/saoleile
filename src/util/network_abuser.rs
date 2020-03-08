@@ -55,8 +55,22 @@ impl NetworkAbuser {
         self
     }
 
-    pub fn constant_latency_ms(self, latency_ms: u64) -> Self {
-        self.network_conditions.lock().unwrap().constant_latency_ms = latency_ms;
+    pub fn constant_latency(self, latency_ms: u64) -> Self {
+        self.network_conditions.lock().unwrap().constant_latency = Duration::from_millis(latency_ms);
+        self
+    }
+
+    pub fn intermittent_latency(self, latency_ms: u64, good_ms: u64, bad_ms: u64, offset_ms: i64) -> Self {
+        self.network_conditions.lock().unwrap().intermittent_latencies.push((
+            Duration::from_millis(latency_ms),
+            Duration::from_millis(good_ms),
+            Duration::from_millis(bad_ms),
+            if offset_ms >= 0 {
+                Instant::now() + Duration::from_millis(offset_ms as u64)
+            } else {
+                Instant::now() - Duration::from_millis(offset_ms.abs() as u64)
+            },
+        ));
         self
     }
 
@@ -83,14 +97,16 @@ impl Drop for NetworkAbuser {
 
 struct NetworkConditions {
     pub drop_every_nth: usize,
-    pub constant_latency_ms: u64,
+    pub constant_latency: Duration,
+    pub intermittent_latencies: Vec<(Duration, Duration, Duration, Instant)>,
 }
 
 impl NetworkConditions {
     pub fn new() -> Self {
         Self {
             drop_every_nth: 0,
-            constant_latency_ms: 0,
+            constant_latency: Duration::from_secs(0),
+            intermittent_latencies: Vec::new(),
         }
     }
 }
@@ -109,16 +125,15 @@ fn network_abuser_send_thread(
             let mut removed_indices = 0;
             for i in 0..packets_guard.len() {
                 let current_index = i - removed_indices;
+                let (ttl, destination, ref payload) = packets_guard[current_index];
 
                 let now = Instant::now();
-                if packets_guard[current_index].0 <= now {
-                    let destination = packets_guard[current_index].1;
-                    let payload = &packets_guard[current_index].2;
+                if ttl <= now {
                     socket.send_to(payload, destination).unwrap();
                     packets_guard.remove(current_index);
                     removed_indices += 1;
                 } else {
-                    let remainder = now - packets_guard[current_index].0;
+                    let remainder = ttl - now;
                     if remainder < min_time {
                         min_time = remainder;
                     }
@@ -171,7 +186,28 @@ fn network_abuser_receive_thread(
                 continue;
             }
 
-            received_at + Duration::from_millis(guard.constant_latency_ms)
+            let now = Instant::now();
+
+            let mut intermittent_latency = Duration::from_secs(0);
+            for &(latency, good, bad, origin) in guard.intermittent_latencies.iter() {
+                let cycle_length = good + bad;
+
+                if now < origin {
+                    continue;
+                }
+
+                // Duration has no modulo division.. :P
+                let mut remainder = now.duration_since(origin);
+                while remainder > cycle_length {
+                    remainder -= cycle_length;
+                }
+
+                if remainder > good {
+                    intermittent_latency += latency;
+                }
+            }
+
+            received_at + guard.constant_latency + intermittent_latency
         };
 
         {
