@@ -20,6 +20,7 @@ pub struct ConnectionData {
     pub last_response_time: Instant,
     pub unacked_events: Vec<(Vec<u16>, Instant, Box<dyn NetworkEvent>)>,
     pub incomplete_payloads: HashMap<Vec<u16>, (Instant, Vec<Option<(PacketHeader, Vec<u8>)>>)>,
+    pub packet_times: Vec<(u16, Instant)>,
 }
 
 impl ConnectionData {
@@ -34,6 +35,7 @@ impl ConnectionData {
             last_response_time: Instant::now(),
             unacked_events: Vec::new(),
             incomplete_payloads: HashMap::new(),
+            packet_times: Vec::new(),
         }
     }
 

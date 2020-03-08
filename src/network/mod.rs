@@ -262,6 +262,21 @@ fn network_interface_cleanup_thread(
             for (address, connection_data) in connections_guard.iter_mut() {
                 // Purge packets that haven't been acked in at least ACK_TIMEOUT
                 let mut removed_indices = 0;
+                for i in 0..connection_data.packet_times.len() {
+                    let current_index = i - removed_indices;
+                    let (sequence, send_time) = connection_data.packet_times[current_index];
+
+                    let elapsed = Instant::now().duration_since(send_time);
+                    if elapsed >= ACK_TIMEOUT {
+                        log!("{}: Packet {} was never acked; considering it dropped.", thread::current().name().unwrap(), sequence);
+
+                        connection_data.packet_times.remove(current_index);
+                        removed_indices += 1;
+                    }
+                }
+
+                // Purge events that haven't been acked in at least ACK_TIMEOUT
+                let mut removed_indices = 0;
                 for i in 0..connection_data.unacked_events.len() {
                     let current_index = i - removed_indices;
                     let event = &connection_data.unacked_events[current_index];
@@ -369,6 +384,7 @@ fn send_events_over_connection(socket: &UdpSocket, address: SocketAddr, mut even
 
     let now = Instant::now();
     connection_data.unacked_events.extend(events.into_iter().map(|e| (sequences.clone(), now, e)));
+    connection_data.packet_times.extend(sequences.into_iter().map(|s| (s, now)));
 }
 
 fn send_events(socket: &UdpSocket, address: SocketAddr, local_sequence: u16, remote_sequence: u16, ack: u32, events: &[Box<dyn NetworkEvent>]) -> usize {
@@ -477,18 +493,30 @@ fn receive_events(
             .entry(sender)
             .or_insert(ConnectionData::new());
 
-        // Check for newly acked events and measure ping
+        // Measure ping
         let now = Instant::now();
+        let mut removed_indices = 0;
+        for i in 0..connection_data.packet_times.len() {
+            let current_index = i - removed_indices;
+            let (sequence, send_time) = connection_data.packet_times[current_index];
+
+            if header.acked(&[sequence]) {
+                const EMA_WEIGHT: f32 = 2.0 / (PING_SMOOTHING as f32 + 1.0);
+                let new_ping = (now - send_time).as_nanos() as f32 / 1_000_000.0;
+                connection_data.ping = new_ping * EMA_WEIGHT + (1.0 - EMA_WEIGHT) * connection_data.ping;
+
+                connection_data.packet_times.remove(current_index);
+                removed_indices += 1;
+            }
+        }
+
+        // Check for newly acked events
         let mut removed_indices = 0;
         for i in 0..connection_data.unacked_events.len() {
             let current_index = i - removed_indices;
-            let event = &connection_data.unacked_events[current_index];
+            let (ref sequences, _, _) = connection_data.unacked_events[current_index];
 
-            if header.acked(&event.0) {
-                const EMA_WEIGHT: f32 = 2.0 / (PING_SMOOTHING as f32 + 1.0);
-                let new_ping = (now - event.1).as_nanos() as f32 / 1_000_000.0;
-                connection_data.ping = new_ping * EMA_WEIGHT + (1.0 - EMA_WEIGHT) * connection_data.ping;
-
+            if header.acked(sequences) {
                 connection_data.unacked_events.remove(current_index);
                 removed_indices += 1;
             }
