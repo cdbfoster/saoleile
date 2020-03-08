@@ -582,3 +582,191 @@ impl NetworkEvent for ShutdownEvent { }
 
 mod connection_info;
 mod packet_header;
+
+#[cfg(test)]
+mod tests {
+    use std::str::FromStr;
+
+    use lazy_static::lazy_static;
+
+    use crate::util::NetworkAbuser;
+    use super::*;
+
+    lazy_static! {
+        static ref ACCESS: Mutex<()> = Mutex::new(()); // Ensures that tests run sequentially, thus not fighting over socket resources.
+        static ref SERVER: SocketAddr = SocketAddr::from_str("127.0.0.1:4455").unwrap();
+        static ref CLIENT: SocketAddr = SocketAddr::from_str("127.0.0.1:3333").unwrap();
+        static ref CLIENT_ABUSER: SocketAddr = SocketAddr::from_str("127.0.0.1:3332").unwrap();
+    }
+
+    #[derive(Debug, Deserialize, Serialize)]
+    pub struct DummyEvent { }
+
+    #[typetag::serde]
+    impl NetworkEvent for DummyEvent { }
+
+    #[derive(Debug, Deserialize, Serialize)]
+    pub struct DummyDataEvent {
+        data: Vec<u8>,
+    }
+
+    #[typetag::serde]
+    impl NetworkEvent for DummyDataEvent { }
+
+    #[test]
+    fn network_interface_receive_event() {
+        log_level!(NONE);
+        let _guard = ACCESS.lock().unwrap();
+        let s = NetworkInterface::new(*SERVER);
+        let c = NetworkInterface::new(*CLIENT);
+
+        c.send_event(*SERVER, Box::new(DummyEvent { }));
+
+        thread::sleep(Duration::from_millis(200));
+
+        let (from, event) = s.lock_receiver().try_recv().unwrap();
+        assert_eq!(from, *CLIENT);
+        assert!(event.as_any().is::<DummyEvent>());
+    }
+
+    #[test]
+    fn network_interface_ack() {
+        log_level!(NONE);
+        let _guard = ACCESS.lock().unwrap();
+        let _s = NetworkInterface::new(*SERVER);
+        let c = NetworkInterface::new(*CLIENT);
+
+        c.send_event(*SERVER, Box::new(DummyEvent { }));
+
+        thread::sleep(Duration::from_millis(200));
+
+        assert!(c.connections.lock().unwrap().get(&*SERVER).unwrap().unacked_events.is_empty());
+    }
+
+    #[test]
+    fn network_interface_dropped_event() {
+        log_level!(NONE);
+        let _guard = ACCESS.lock().unwrap();
+        let c = NetworkInterface::new(*CLIENT);
+
+        c.send_event(*SERVER, Box::new(DummyEvent { }));
+
+        thread::sleep(Duration::from_millis(1200));
+
+        let (from, event) = c.lock_receiver().try_recv().unwrap();
+        assert_eq!(from, *SERVER);
+        assert!(event.as_any().is::<DroppedNetworkEvent>());
+    }
+
+    #[test]
+    fn network_interface_disconnect() {
+        log_level!(NONE);
+        let _guard = ACCESS.lock().unwrap();
+        let s = NetworkInterface::new(*SERVER);
+        let c = NetworkInterface::new(*CLIENT);
+
+        c.send_event(*SERVER, Box::new(DummyEvent { }));
+
+        thread::sleep(Duration::from_millis(200));
+
+        c.shutdown();
+        s.lock_receiver().try_recv().ok(); // Discard the event sent by the client
+
+        thread::sleep(Duration::from_millis(8000));
+
+        let (from, event) = s.lock_receiver().try_recv().unwrap();
+        assert_eq!(from, *CLIENT);
+        assert!(event.as_any().is::<DisconnectEvent>());
+    }
+
+    #[test]
+    fn network_interface_send_grouped_events() {
+        log_level!(NONE);
+        let _guard = ACCESS.lock().unwrap();
+        let c = NetworkInterface::new(*CLIENT);
+
+        c.send_event(*SERVER, Box::new(DummyEvent { }));
+        c.send_event(*SERVER, Box::new(DummyEvent { }));
+        c.send_event(*SERVER, Box::new(DummyEvent { }));
+
+        thread::sleep(Duration::from_millis(200));
+
+        // We should have 3 unacked events
+        assert_eq!(c.connections.lock().unwrap().get(&*SERVER).unwrap().unacked_events.len(), 3);
+        // All unacked events should have the same sequence group: [0]
+        assert!(c.connections.lock().unwrap().get(&*SERVER).unwrap().unacked_events.iter().all(|&(ref s, _, _)| s == &[0]));
+    }
+
+    #[test]
+    fn network_interface_send_big_grouped_events() {
+        log_level!(NONE);
+        let _guard = ACCESS.lock().unwrap();
+        let c = NetworkInterface::new(*CLIENT);
+
+        c.send_event(*SERVER, Box::new(DummyEvent { }));
+        c.send_event(*SERVER, Box::new(DummyDataEvent { data: vec![0xFF; 900] }));
+        c.send_event(*SERVER, Box::new(DummyEvent { }));
+
+        thread::sleep(Duration::from_millis(200));
+
+        // We should have 3 unacked events
+        assert_eq!(c.connections.lock().unwrap().get(&*SERVER).unwrap().unacked_events.len(), 3);
+        // All unacked events should have the same sequence group: [0, 1]
+        assert!(c.connections.lock().unwrap().get(&*SERVER).unwrap().unacked_events.iter().all(|&(ref s, _, _)| s == &[0, 1]));
+    }
+
+    #[test]
+    fn network_interface_receive_big_grouped_events() {
+        log_level!(NONE);
+        let _guard = ACCESS.lock().unwrap();
+        let s = NetworkInterface::new(*SERVER);
+        let c = NetworkInterface::new(*CLIENT);
+
+        c.send_event(*SERVER, Box::new(DummyEvent { }));
+        c.send_event(*SERVER, Box::new(DummyDataEvent { data: vec![0xFF; 900] }));
+        c.send_event(*SERVER, Box::new(DummyEvent { }));
+
+        thread::sleep(Duration::from_millis(200));
+
+        let (from, event) = s.lock_receiver().try_recv().unwrap();
+        assert_eq!(from, *CLIENT);
+        assert!(event.as_any().is::<DummyEvent>());
+
+        let (from, event) = s.lock_receiver().try_recv().unwrap();
+        assert_eq!(from, *CLIENT);
+        assert_eq!(event.as_any().downcast_ref::<DummyDataEvent>().unwrap().data, vec![0xFF; 900]);
+
+        let (from, event) = s.lock_receiver().try_recv().unwrap();
+        assert_eq!(from, *CLIENT);
+        assert!(event.as_any().is::<DummyEvent>());
+    }
+
+    #[test]
+    fn network_interface_dropped_big_grouped_events() {
+        // If we drop every other packet, grouped events spanning multiple packets will never make it through
+
+        log_level!(NONE);
+        let _guard = ACCESS.lock().unwrap();
+        let _s = NetworkInterface::new(*SERVER);
+        let c = NetworkInterface::new(*CLIENT);
+        let _ca = NetworkAbuser::new(*CLIENT_ABUSER, *CLIENT, *SERVER)
+            .drop_every_nth(2);
+
+        c.send_event(*CLIENT_ABUSER, Box::new(DummyEvent { }));
+        c.send_event(*CLIENT_ABUSER, Box::new(DummyDataEvent { data: vec![0xFF; 900] }));
+        c.send_event(*CLIENT_ABUSER, Box::new(DummyEvent { }));
+
+        thread::sleep(Duration::from_millis(1200));
+
+        let (_, event) = c.lock_receiver().try_recv().unwrap();
+        assert!(event.as_any().is::<DroppedNetworkEvent>());
+
+        let (_, event) = c.lock_receiver().try_recv().unwrap();
+        assert!(event.as_any().is::<DroppedNetworkEvent>());
+
+        let (_, event) = c.lock_receiver().try_recv().unwrap();
+        assert!(event.as_any().is::<DroppedNetworkEvent>());
+
+        assert!(c.lock_receiver().try_recv().is_err());
+    }
+}
