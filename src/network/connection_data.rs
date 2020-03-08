@@ -68,3 +68,31 @@ pub fn wrapped_distance(mut a: u16, mut b: u16) -> i16 {
         sign * (a as i32 - 65536 + b as i32) as i16
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::network::packet_header::PacketHeader;
+    use super::*;
+
+    #[test]
+    fn correct_acks() {
+        let mut cd = ConnectionData::new();
+
+        cd.ack_sequence(18);
+        cd.ack_sequence(20);
+
+        let ph = PacketHeader {
+            sequence: 0,
+            ack_start: cd.remote_sequence,
+            ack: cd.ack,
+            part: 0,
+            total: 0,
+            sizes: Vec::new(),
+        };
+
+        assert!(ph.acked(&[18, 20]));
+        assert!(ph.acked(&[17]) == false);
+        assert!(ph.acked(&[19]) == false);
+        assert!(ph.acked(&[21]) == false);
+    }
+}
