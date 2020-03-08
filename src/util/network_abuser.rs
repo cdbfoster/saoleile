@@ -55,6 +55,11 @@ impl NetworkAbuser {
         self
     }
 
+    pub fn constant_latency_ms(self, latency_ms: u64) -> Self {
+        self.network_conditions.lock().unwrap().constant_latency_ms = latency_ms;
+        self
+    }
+
     pub fn shutdown(&self) {
         let mut running = self.running.lock().unwrap();
 
@@ -78,12 +83,14 @@ impl Drop for NetworkAbuser {
 
 struct NetworkConditions {
     pub drop_every_nth: usize,
+    pub constant_latency_ms: u64,
 }
 
 impl NetworkConditions {
     pub fn new() -> Self {
         Self {
             drop_every_nth: 0,
+            constant_latency_ms: 0,
         }
     }
 }
@@ -164,7 +171,7 @@ fn network_abuser_receive_thread(
                 continue;
             }
 
-            received_at
+            received_at + Duration::from_millis(guard.constant_latency_ms)
         };
 
         {
