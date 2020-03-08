@@ -1,6 +1,6 @@
 use std::io::Write;
 
-use crate::network::connection_info::wrapped_distance;
+use crate::network::connection_data::wrapped_distance;
 use crate::util::FromBytes;
 
 const MAGIC: u32 = 0xE7E7E44E;

@@ -10,7 +10,7 @@ pub const LOW_FREQUENCY: u8 = 10;
 pub const PING_SMOOTHING: u16 = 10;
 
 #[derive(Debug)]
-pub struct ConnectionInfo {
+pub struct ConnectionData {
     pub local_sequence: u16,
     pub remote_sequence: u16,
     pub ack: u32,
@@ -22,7 +22,7 @@ pub struct ConnectionInfo {
     pub incomplete_payloads: HashMap<Vec<u16>, (Instant, Vec<Option<(PacketHeader, Vec<u8>)>>)>,
 }
 
-impl ConnectionInfo {
+impl ConnectionData {
     pub fn new() -> Self {
         Self {
             local_sequence: 0,

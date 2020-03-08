@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use crate::event::NetworkEvent;
 use crate::event::network::{DisconnectEvent, DroppedNetworkEvent};
 
-use self::connection_info::{ConnectionInfo, LOW_FREQUENCY, PING_SMOOTHING, wrapped_distance};
+use self::connection_data::{ConnectionData, LOW_FREQUENCY, PING_SMOOTHING, wrapped_distance};
 use self::packet_header::PacketHeader;
 
 pub const MAX_PACKET_SIZE: usize = 1024;
@@ -25,7 +25,7 @@ pub struct NetworkInterface {
     receive_thread: Mutex<Option<thread::JoinHandle<()>>>,
     cleanup_thread: Mutex<Option<thread::JoinHandle<()>>>,
 
-    connections: Arc<Mutex<HashMap<SocketAddr, ConnectionInfo>>>,
+    connections: Arc<Mutex<HashMap<SocketAddr, ConnectionData>>>,
     whitelist: Arc<Mutex<Option<HashSet<SocketAddr>>>>,
 
     socket: UdpSocket,
@@ -121,7 +121,7 @@ impl Drop for NetworkInterface {
 fn network_interface_send_thread(
     socket: UdpSocket,
     send_queue: mpsc::Receiver<(SocketAddr, Box<dyn NetworkEvent>)>,
-    connections: Arc<Mutex<HashMap<SocketAddr, ConnectionInfo>>>,
+    connections: Arc<Mutex<HashMap<SocketAddr, ConnectionData>>>,
 ) {
     log!("{} started.", thread::current().name().unwrap());
 
@@ -138,17 +138,17 @@ fn network_interface_send_thread(
             previous_time = current_time;
 
             // Handle any overdue buffers
-            for (address, connection_info) in connections_guard.iter_mut() {
-                connection_info.send_accumulator += delta_time.as_nanos();
+            for (address, connection_data) in connections_guard.iter_mut() {
+                connection_data.send_accumulator += delta_time.as_nanos();
 
-                let iteration_ns = 1_000_000_000 as u128 / connection_info.frequency as u128;
-                if connection_info.send_accumulator >= iteration_ns {
+                let iteration_ns = 1_000_000_000 as u128 / connection_data.frequency as u128;
+                if connection_data.send_accumulator >= iteration_ns {
                     // Send events that have piled up for this address
                     let current_buffer = buffer.remove(address).unwrap_or(Vec::new());
-                    send_events_over_connection(&socket, *address, current_buffer, connection_info);
+                    send_events_over_connection(&socket, *address, current_buffer, connection_data);
 
-                    connection_info.send_accumulator -= iteration_ns;
-                    if connection_info.send_accumulator >= iteration_ns {
+                    connection_data.send_accumulator -= iteration_ns;
+                    if connection_data.send_accumulator >= iteration_ns {
                         log!(INFO, "{} is behind!", thread::current().name().unwrap());
                     }
                 }
@@ -172,7 +172,7 @@ fn network_interface_send_thread(
             for (destination, event) in new_events {
                 if !connections_guard.contains_key(&destination) {
                     log!("{}: Creating connection info for {}.", thread::current().name().unwrap(), destination);
-                    connections_guard.insert(destination, ConnectionInfo::new());
+                    connections_guard.insert(destination, ConnectionData::new());
                 }
 
                 buffer.entry(destination).or_insert(Vec::new()).push(event);
@@ -183,10 +183,10 @@ fn network_interface_send_thread(
             previous_time = current_time;
 
             let mut minimum_time = Duration::from_secs_f32(1.0 / LOW_FREQUENCY as f32).as_nanos() as i128;
-            for (_, info) in connections_guard.iter_mut() {
-                info.send_accumulator += delta_time.as_nanos();
-                let iteration_ns = 1_000_000_000 as u128 / info.frequency as u128;
-                let remaining_time = iteration_ns as i128 - info.send_accumulator as i128;
+            for (_, connection_data) in connections_guard.iter_mut() {
+                connection_data.send_accumulator += delta_time.as_nanos();
+                let iteration_ns = 1_000_000_000 as u128 / connection_data.frequency as u128;
+                let remaining_time = iteration_ns as i128 - connection_data.send_accumulator as i128;
                 if remaining_time < minimum_time {
                     minimum_time = remaining_time;
                 }
@@ -205,7 +205,7 @@ fn network_interface_send_thread(
 fn network_interface_receive_thread(
     socket: UdpSocket,
     receive_queue: mpsc::Sender<(SocketAddr, Box<dyn NetworkEvent>)>,
-    connections: Arc<Mutex<HashMap<SocketAddr, ConnectionInfo>>>,
+    connections: Arc<Mutex<HashMap<SocketAddr, ConnectionData>>>,
     whitelist: Arc<Mutex<Option<HashSet<SocketAddr>>>>,
 ) {
     log!("{} started.", thread::current().name().unwrap());
@@ -234,7 +234,7 @@ fn network_interface_receive_thread(
 
 fn network_interface_cleanup_thread(
     receiver: mpsc::Receiver<Box<dyn NetworkEvent>>,
-    connections: Arc<Mutex<HashMap<SocketAddr, ConnectionInfo>>>,
+    connections: Arc<Mutex<HashMap<SocketAddr, ConnectionData>>>,
     receive_queue: mpsc::Sender<(SocketAddr, Box<dyn NetworkEvent>)>,
 ) {
     log!("{} started.", thread::current().name().unwrap());
@@ -248,16 +248,16 @@ fn network_interface_cleanup_thread(
 
         {
             let mut connections_guard = connections.lock().unwrap();
-            for (address, connection_info) in connections_guard.iter_mut() {
+            for (address, connection_data) in connections_guard.iter_mut() {
                 // Purge packets that haven't been acked in at least ACK_TIMEOUT
                 let mut removed_indices = 0;
-                for i in 0..connection_info.unacked_events.len() {
+                for i in 0..connection_data.unacked_events.len() {
                     let current_index = i - removed_indices;
-                    let event = &connection_info.unacked_events[current_index];
+                    let event = &connection_data.unacked_events[current_index];
 
                     let elapsed = Instant::now().duration_since(event.1);
                     if elapsed >= ACK_TIMEOUT {
-                        let (sequences, _, dropped_event) = connection_info.unacked_events.remove(current_index);
+                        let (sequences, _, dropped_event) = connection_data.unacked_events.remove(current_index);
                         log!("{}: Event in {:?} was never acked; considering it dropped.", thread::current().name().unwrap(), sequences);
 
                         receive_queue.send((
@@ -278,11 +278,11 @@ fn network_interface_cleanup_thread(
                 }
 
                 // Purge incomplete payloads older than PAYLOAD_TIMEOUT
-                let incomplete_groups = connection_info.incomplete_payloads.keys().map(|k| k.clone()).collect::<Vec<_>>();
+                let incomplete_groups = connection_data.incomplete_payloads.keys().map(|k| k.clone()).collect::<Vec<_>>();
                 for group in incomplete_groups {
-                    let elapsed = Instant::now().duration_since(connection_info.incomplete_payloads.get(&group).unwrap().0);
+                    let elapsed = Instant::now().duration_since(connection_data.incomplete_payloads.get(&group).unwrap().0);
                     if elapsed >= PAYLOAD_TIMEOUT {
-                        connection_info.incomplete_payloads.remove(&group);
+                        connection_data.incomplete_payloads.remove(&group);
                         log!("{}: Packet group {:?} was not completed; considering it dropped.", thread::current().name().unwrap(), group);
                     } else {
                         let remainder = (PAYLOAD_TIMEOUT - elapsed).as_nanos() as i128;
@@ -332,13 +332,13 @@ fn network_interface_cleanup_thread(
     log!("{} exiting.", thread::current().name().unwrap());
 }
 
-fn send_events_over_connection(socket: &UdpSocket, address: SocketAddr, mut events: Vec<Box<dyn NetworkEvent>>, connection_info: &mut ConnectionInfo) {
+fn send_events_over_connection(socket: &UdpSocket, address: SocketAddr, mut events: Vec<Box<dyn NetworkEvent>>, connection_data: &mut ConnectionData) {
     let max_event_count = PacketHeader::max_event_count(MAX_PACKET_SIZE);
 
     if events.len() > max_event_count {
         for _ in (0..events.len()).step_by(max_event_count) {
             let overflow = events.split_off(events.len().min(max_event_count));
-            send_events_over_connection(socket, address, events, connection_info);
+            send_events_over_connection(socket, address, events, connection_data);
             events = overflow;
         }
         return;
@@ -347,17 +347,17 @@ fn send_events_over_connection(socket: &UdpSocket, address: SocketAddr, mut even
     let packet_count = send_events(
         socket,
         address,
-        connection_info.local_sequence,
-        connection_info.remote_sequence,
-        connection_info.ack,
+        connection_data.local_sequence,
+        connection_data.remote_sequence,
+        connection_data.ack,
         &events,
     );
 
-    let sequences = (0..packet_count as u16).map(|x| connection_info.local_sequence.wrapping_add(x)).collect::<Vec<_>>();
-    connection_info.local_sequence = connection_info.local_sequence.wrapping_add(packet_count as u16);
+    let sequences = (0..packet_count as u16).map(|x| connection_data.local_sequence.wrapping_add(x)).collect::<Vec<_>>();
+    connection_data.local_sequence = connection_data.local_sequence.wrapping_add(packet_count as u16);
 
     let now = Instant::now();
-    connection_info.unacked_events.extend(events.into_iter().map(|e| (sequences.clone(), now, e)));
+    connection_data.unacked_events.extend(events.into_iter().map(|e| (sequences.clone(), now, e)));
 }
 
 fn send_events(socket: &UdpSocket, address: SocketAddr, local_sequence: u16, remote_sequence: u16, ack: u32, events: &[Box<dyn NetworkEvent>]) -> usize {
@@ -435,7 +435,7 @@ fn send_packet(socket: &UdpSocket, destination: SocketAddr, header: PacketHeader
 
 fn receive_events(
     socket: &UdpSocket,
-    connections: Arc<Mutex<HashMap<SocketAddr, ConnectionInfo>>>,
+    connections: Arc<Mutex<HashMap<SocketAddr, ConnectionData>>>,
     whitelist: Arc<Mutex<Option<HashSet<SocketAddr>>>>,
 ) -> Option<(SocketAddr, Vec<Box<dyn NetworkEvent>>)> {
     let mut buffer = vec![0u8; MAX_PACKET_SIZE];
@@ -474,34 +474,34 @@ fn receive_events(
 
     let decodable_events = if !from_self {
         // Setup new connection if necessary
-        let mut connection_info = connections_guard
+        let mut connection_data = connections_guard
             .entry(sender)
-            .or_insert(ConnectionInfo::new());
+            .or_insert(ConnectionData::new());
 
         // Check for newly acked events and measure ping
         let now = Instant::now();
         let mut removed_indices = 0;
-        for i in 0..connection_info.unacked_events.len() {
+        for i in 0..connection_data.unacked_events.len() {
             let current_index = i - removed_indices;
-            let event = &connection_info.unacked_events[current_index];
+            let event = &connection_data.unacked_events[current_index];
 
             if header.acked(&event.0) {
                 const EMA_WEIGHT: f32 = 2.0 / (PING_SMOOTHING as f32 + 1.0);
                 let new_ping = (now - event.1).as_nanos() as f32 / 1_000_000.0;
-                connection_info.ping = new_ping * EMA_WEIGHT + (1.0 - EMA_WEIGHT) * connection_info.ping;
+                connection_data.ping = new_ping * EMA_WEIGHT + (1.0 - EMA_WEIGHT) * connection_data.ping;
 
-                connection_info.unacked_events.remove(current_index);
+                connection_data.unacked_events.remove(current_index);
                 removed_indices += 1;
             }
         }
 
         // Ignore the payload if we're out of ack range
-        if wrapped_distance(header.sequence, connection_info.remote_sequence) >= 32 {
+        if wrapped_distance(header.sequence, connection_data.remote_sequence) >= 32 {
             return None;
         }
 
-        connection_info.ack_sequence(header.sequence);
-        connection_info.last_response_time = now;
+        connection_data.ack_sequence(header.sequence);
+        connection_data.last_response_time = now;
 
         let sequence_group = header.get_sequence_group();
         if sequence_group.len() == 1 {
@@ -509,7 +509,7 @@ fn receive_events(
             Some((header, payload))
         } else {
             // Otherwise, the payload is spread over a few packets, so collect the parts
-            let packet_group = connection_info.incomplete_payloads
+            let packet_group = connection_data.incomplete_payloads
                 .entry(sequence_group)
                 .or_insert((Instant::now(), vec![None; header.total as usize]));
 
@@ -580,7 +580,7 @@ struct ShutdownEvent { }
 #[typetag::serde]
 impl NetworkEvent for ShutdownEvent { }
 
-mod connection_info;
+mod connection_data;
 mod packet_header;
 
 #[cfg(test)]
