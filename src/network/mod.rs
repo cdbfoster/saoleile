@@ -486,10 +486,17 @@ fn receive_events(
     let mut connections_guard = connections.lock().unwrap();
 
     let decodable_events = if !from_self {
+        let from_new_sender = !connections_guard.contains_key(&sender);
+
         // Setup new connection if necessary
         let mut connection_data = connections_guard
             .entry(sender)
             .or_insert(ConnectionData::new());
+
+        // Offset new connection send times by half a send period
+        if from_new_sender {
+            connection_data.send_accumulator += 500_000_000 / connection_data.frequency as u128;
+        }
 
         // Measure ping
         let now = Instant::now();
