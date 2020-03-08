@@ -20,7 +20,6 @@ pub struct ConnectionInfo {
     pub last_response_time: Instant,
     pub unacked_events: Vec<(Vec<u16>, Instant, Box<dyn NetworkEvent>)>,
     pub incomplete_payloads: HashMap<Vec<u16>, (Instant, Vec<Option<(PacketHeader, Vec<u8>)>>)>,
-    pub disconnecting: bool,
 }
 
 impl ConnectionInfo {
@@ -35,7 +34,6 @@ impl ConnectionInfo {
             last_response_time: Instant::now(),
             unacked_events: Vec::new(),
             incomplete_payloads: HashMap::new(),
-            disconnecting: false,
         }
     }
 
