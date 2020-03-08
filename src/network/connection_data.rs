@@ -14,13 +14,17 @@ pub struct ConnectionData {
     pub local_sequence: u16,
     pub remote_sequence: u16,
     pub ack: u32,
+
     pub ping: f32,
     pub frequency: u8,
+
     pub send_accumulator: u128,
+
     pub last_response_time: Instant,
+
     pub unacked_events: Vec<(Vec<u16>, Instant, Box<dyn NetworkEvent>)>,
-    pub incomplete_payloads: HashMap<Vec<u16>, (Instant, Vec<Option<(PacketHeader, Vec<u8>)>>)>,
     pub packet_times: Vec<(u16, Instant)>,
+    pub incomplete_payloads: HashMap<Vec<u16>, (Instant, Vec<Option<(PacketHeader, Vec<u8>)>>)>,
 }
 
 impl ConnectionData {
@@ -34,8 +38,8 @@ impl ConnectionData {
             send_accumulator: 0,
             last_response_time: Instant::now(),
             unacked_events: Vec::new(),
-            incomplete_payloads: HashMap::new(),
             packet_times: Vec::new(),
+            incomplete_payloads: HashMap::new(),
         }
     }
 
