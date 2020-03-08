@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::i128;
 use std::net::{SocketAddr, UdpSocket};
 use std::sync::{Arc, mpsc, Mutex, MutexGuard};
@@ -26,10 +26,7 @@ pub struct NetworkInterface {
     cleanup_thread: Mutex<Option<thread::JoinHandle<()>>>,
 
     connections: Arc<Mutex<HashMap<SocketAddr, ConnectionData>>>,
-    whitelist: Arc<Mutex<Option<HashSet<SocketAddr>>>>,
-
     socket: UdpSocket,
-
     running: Mutex<bool>,
 }
 
@@ -40,8 +37,6 @@ impl NetworkInterface {
         let (cleanup, cleanup_receiver) = mpsc::channel();
 
         let connections = Arc::new(Mutex::new(HashMap::new()));
-        let whitelist = Arc::new(Mutex::new(None));
-
         let socket = UdpSocket::bind(bind).expect(&format!("NetworkInterface: Cannot bind to address: {}", bind));
 
         let send_thread = Mutex::new(Some({
@@ -56,10 +51,9 @@ impl NetworkInterface {
             let socket = socket.try_clone().expect("NetworkInterface: Cannot clone socket!");
             let receive_queue = receive_queue.clone();
             let connections = connections.clone();
-            let whitelist = whitelist.clone();
             thread::Builder::new()
                 .name(format!("NetworkInterface({}) receive thread", socket.local_addr().unwrap()))
-                .spawn(move || network_interface_receive_thread(socket, receive_queue, connections, whitelist)).unwrap()
+                .spawn(move || network_interface_receive_thread(socket, receive_queue, connections)).unwrap()
         }));
 
         let cleanup_thread = Mutex::new(Some({
@@ -77,7 +71,6 @@ impl NetworkInterface {
             receive_thread,
             cleanup_thread,
             connections,
-            whitelist,
             socket,
             running: Mutex::new(true),
         }
@@ -206,12 +199,11 @@ fn network_interface_receive_thread(
     socket: UdpSocket,
     receive_queue: mpsc::Sender<(SocketAddr, Box<dyn NetworkEvent>)>,
     connections: Arc<Mutex<HashMap<SocketAddr, ConnectionData>>>,
-    whitelist: Arc<Mutex<Option<HashSet<SocketAddr>>>>,
 ) {
     log!("{} started.", thread::current().name().unwrap());
 
     loop {
-        let (sender, events) = if let Some(complete_payload) = receive_events(&socket, connections.clone(), whitelist.clone()) {
+        let (sender, events) = if let Some(complete_payload) = receive_events(&socket, connections.clone()) {
             complete_payload
         } else {
             continue
@@ -436,7 +428,6 @@ fn send_packet(socket: &UdpSocket, destination: SocketAddr, header: PacketHeader
 fn receive_events(
     socket: &UdpSocket,
     connections: Arc<Mutex<HashMap<SocketAddr, ConnectionData>>>,
-    whitelist: Arc<Mutex<Option<HashSet<SocketAddr>>>>,
 ) -> Option<(SocketAddr, Vec<Box<dyn NetworkEvent>>)> {
     let mut buffer = vec![0u8; MAX_PACKET_SIZE];
 
@@ -449,17 +440,6 @@ fn receive_events(
     };
 
     let from_self = sender == socket.local_addr().unwrap();
-
-    // Test against the whitelist
-    if !from_self {
-        let whitelist_guard = whitelist.lock().unwrap();
-        if let Some(whitelist) = whitelist_guard.as_ref() {
-            if !whitelist.contains(&sender) {
-                log!(INFO, "{}: Recieved a packet from a non-whitelisted address: {}", thread::current().name().unwrap(), sender);
-                return None;
-            }
-        }
-    }
 
     buffer.truncate(size);
     let (header, payload) = match decode_packet(&buffer) {
