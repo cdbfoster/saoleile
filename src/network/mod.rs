@@ -19,7 +19,7 @@ pub const MAX_PACKET_SIZE: usize = 1024;
 pub struct NetworkInterface {
     sender: Mutex<mpsc::Sender<(SocketAddr, Box<dyn NetworkEvent>)>>,
     receiver: Mutex<mpsc::Receiver<(SocketAddr, Box<dyn NetworkEvent>)>>,
-    cleanup: Mutex<mpsc::Sender<Box<dyn NetworkEvent>>>,
+    cleanup: Mutex<mpsc::Sender<()>>,
 
     send_thread: Mutex<Option<thread::JoinHandle<()>>>,
     receive_thread: Mutex<Option<thread::JoinHandle<()>>>,
@@ -107,7 +107,7 @@ impl NetworkInterface {
             // Send a shutdown event to the receive thread
             send_events(&self.socket, this_address, 0, 0, 0, &[Box::new(ShutdownEvent { })]);
             // Send a shutdown event to the cleanup thread
-            self.cleanup.lock().unwrap().send(Box::new(ShutdownEvent { })).unwrap();
+            self.cleanup.lock().unwrap().send(()).unwrap();
 
             self.send_thread.lock().unwrap().take().unwrap().join().ok();
             self.receive_thread.lock().unwrap().take().unwrap().join().ok();
@@ -244,7 +244,7 @@ fn network_interface_receive_thread(
 }
 
 fn network_interface_cleanup_thread(
-    receiver: mpsc::Receiver<Box<dyn NetworkEvent>>,
+    quit_receiver: mpsc::Receiver<()>,
     connections: Arc<Mutex<HashMap<SocketAddr, ConnectionData>>>,
     receive_queue: mpsc::Sender<(SocketAddr, Box<dyn NetworkEvent>)>,
 ) {
@@ -279,9 +279,9 @@ fn network_interface_cleanup_thread(
                 let mut removed_indices = 0;
                 for i in 0..connection_data.unacked_events.len() {
                     let current_index = i - removed_indices;
-                    let event = &connection_data.unacked_events[current_index];
+                    let (_, send_time, _) = connection_data.unacked_events[current_index];
 
-                    let elapsed = Instant::now().duration_since(event.1);
+                    let elapsed = Instant::now().duration_since(send_time);
                     if elapsed >= ACK_TIMEOUT {
                         let (sequences, _, dropped_event) = connection_data.unacked_events.remove(current_index);
                         log!("{}: Event in {:?} was never acked; considering it dropped.", thread::current().name().unwrap(), sequences);
@@ -341,17 +341,15 @@ fn network_interface_cleanup_thread(
         }
 
         // Sleep till next due event (this is a maximum of 0.5 seconds)
-        let event = if minimum_time_to_next_due > 0 {
-            receiver.recv_timeout(Duration::from_nanos((minimum_time_to_next_due / 2) as u64)).ok()
+        let quit = if minimum_time_to_next_due > 0 {
+            quit_receiver.recv_timeout(Duration::from_nanos((minimum_time_to_next_due / 2) as u64)).is_ok()
         } else {
-            receiver.try_recv().ok()
+            quit_receiver.try_recv().is_ok()
         };
 
-        if let Some(event) = event {
-            if event.as_any().is::<ShutdownEvent>() {
-                log!("{} received a shutdown event.", thread::current().name().unwrap());
-                break;
-            }
+        if quit {
+            log!("{} received a shutdown event.", thread::current().name().unwrap());
+            break;
         }
     }
 
