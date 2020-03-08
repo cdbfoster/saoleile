@@ -85,6 +85,18 @@ impl NetworkInterface {
         self.receiver.lock().unwrap()
     }
 
+    pub fn get_connection_info(&self) -> HashMap<SocketAddr, ConnectionInfo> {
+        let connections_guard = self.connections.lock().unwrap();
+        connections_guard.iter().map(|(&address, c)| (
+            address,
+            ConnectionInfo {
+                address,
+                ping: c.ping,
+                frequency: c.frequency,
+            },
+        )).collect()
+    }
+
     pub fn shutdown(&self) {
         let mut running = self.running.lock().unwrap();
 
@@ -109,6 +121,13 @@ impl Drop for NetworkInterface {
     fn drop(&mut self) {
         self.shutdown();
     }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct ConnectionInfo {
+    pub address: SocketAddr,
+    pub ping: f32,
+    pub frequency: u8,
 }
 
 fn network_interface_send_thread(
