@@ -13,6 +13,8 @@ use crate::event::network::{DisconnectEvent, DroppedNetworkEvent};
 use self::connection_info::{ConnectionInfo, LOW_FREQUENCY, PING_SMOOTHING, wrapped_distance};
 use self::packet_header::PacketHeader;
 
+pub const MAX_PACKET_SIZE: usize = 1024;
+
 #[derive(Debug)]
 pub struct NetworkInterface {
     sender: Mutex<mpsc::Sender<(SocketAddr, Box<dyn NetworkEvent>)>>,
@@ -330,8 +332,6 @@ fn network_interface_cleanup_thread(
     log!("{} exiting.", thread::current().name().unwrap());
 }
 
-const MAX_PACKET_SIZE: usize = 1024;
-
 fn send_events_over_connection(socket: &UdpSocket, address: SocketAddr, mut events: Vec<Box<dyn NetworkEvent>>, connection_info: &mut ConnectionInfo) {
     let max_event_count = PacketHeader::max_event_count(MAX_PACKET_SIZE);
 
@@ -374,7 +374,7 @@ fn send_events(socket: &UdpSocket, address: SocketAddr, local_sequence: u16, rem
     let mut current_position = 0;
     for i in 0..packet_count {
         let header = PacketHeader {
-            sequence: local_sequence,
+            sequence: local_sequence + i as u16,
             ack_start: remote_sequence,
             ack: ack,
             part: i as u8,
@@ -472,14 +472,8 @@ fn receive_events(
 
     let mut connections_guard = connections.lock().unwrap();
 
-    let (from_new_sender, decodable_events) = if !from_self {
+    let decodable_events = if !from_self {
         // Setup new connection if necessary
-        let from_new_sender = if !connections_guard.contains_key(&sender) {
-            log!(INFO, "{}: Incoming packet from new sender: {}", thread::current().name().unwrap(), sender);
-            true
-        } else {
-            false
-        };
         let mut connection_info = connections_guard
             .entry(sender)
             .or_insert(ConnectionInfo::new());
@@ -503,9 +497,6 @@ fn receive_events(
 
         // Ignore the payload if we're out of ack range
         if wrapped_distance(header.sequence, connection_info.remote_sequence) >= 32 {
-            if from_new_sender { // XXX Needed?  If the sender is new, remote_sequence is never gonna be ahead
-                connections_guard.remove(&sender);
-            }
             return None;
         }
 
@@ -515,7 +506,7 @@ fn receive_events(
         let sequence_group = header.get_sequence_group();
         if sequence_group.len() == 1 {
             // The whole payload is contained in this packet, so return that
-            (from_new_sender, Some((header, payload)))
+            Some((header, payload))
         } else {
             // Otherwise, the payload is spread over a few packets, so collect the parts
             let packet_group = connection_info.incomplete_payloads
@@ -535,17 +526,17 @@ fn receive_events(
                         payload.extend_from_slice(&payload_part);
                     }
 
-                    (from_new_sender, Some((header, payload)))
+                    Some((header, payload))
                 } else {
-                    (from_new_sender, None)
+                    None
                 }
             } else {
                 log!(ERROR, "{}: Received a duplicate payload section!", thread::current().name().unwrap());
-                (from_new_sender, None)
+                None
             }
         }
     } else {
-        (false, Some((header, payload)))
+        Some((header, payload))
     };
 
     if let Some((header, payload)) = decodable_events {
