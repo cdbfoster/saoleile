@@ -88,6 +88,7 @@ pub fn network_interface_monitor_thread(
 
                             connection_data.frequency = HIGH_FREQUENCY;
                             connection_data.last_frequency_change = now;
+                            connection_data.last_cooldown_update = now;
                         }
                     } else {
                         connection_data.last_frequency_change = now;
