@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::cmp;
 use std::i128;
 use std::net::{SocketAddr, UdpSocket};
 use std::sync::{Arc, mpsc, Mutex, MutexGuard};
@@ -10,7 +11,17 @@ use serde::{Deserialize, Serialize};
 use crate::event::NetworkEvent;
 use crate::event::network::{DisconnectEvent, DroppedNetworkEvent};
 
-use self::connection_data::{ConnectionData, LOW_FREQUENCY, PING_SMOOTHING, wrapped_distance};
+use self::connection_data::{
+    ConnectionData,
+    HIGH_FREQUENCY,
+    LATENCY_THRESHOLD,
+    LOW_FREQUENCY,
+    MAX_RECOVERY_COOLDOWN,
+    MIN_RECOVERY_COOLDOWN,
+    PING_SMOOTHING,
+    RECOVERY_COOLDOWN_UPDATE_PERIOD,
+    wrapped_distance,
+};
 use self::packet_header::PacketHeader;
 
 pub const MAX_PACKET_SIZE: usize = 1024;
@@ -20,10 +31,12 @@ pub struct NetworkInterface {
     sender: Mutex<mpsc::Sender<(SocketAddr, Box<dyn NetworkEvent>)>>,
     receiver: Mutex<mpsc::Receiver<(SocketAddr, Box<dyn NetworkEvent>)>>,
     cleanup: Mutex<mpsc::Sender<()>>,
+    monitor: Mutex<mpsc::Sender<()>>,
 
     send_thread: Mutex<Option<thread::JoinHandle<()>>>,
     receive_thread: Mutex<Option<thread::JoinHandle<()>>>,
     cleanup_thread: Mutex<Option<thread::JoinHandle<()>>>,
+    monitor_thread: Mutex<Option<thread::JoinHandle<()>>>,
 
     connections: Arc<Mutex<HashMap<SocketAddr, ConnectionData>>>,
     socket: UdpSocket,
@@ -35,6 +48,7 @@ impl NetworkInterface {
         let (sender, send_queue) = mpsc::channel();
         let (receive_queue, receiver) = mpsc::channel();
         let (cleanup, cleanup_receiver) = mpsc::channel();
+        let (monitor, monitor_receiver) = mpsc::channel();
 
         let connections = Arc::new(Mutex::new(HashMap::new()));
         let socket = UdpSocket::bind(bind).expect(&format!("NetworkInterface: Cannot bind to address: {}", bind));
@@ -63,13 +77,22 @@ impl NetworkInterface {
                 .spawn(move || network_interface_cleanup_thread(cleanup_receiver, connections, receive_queue)).unwrap()
         }));
 
+        let monitor_thread = Mutex::new(Some({
+            let connections = connections.clone();
+            thread::Builder::new()
+                .name(format!("NetworkInterface({}) monitor thread", socket.local_addr().unwrap()))
+                .spawn(move || network_interface_monitor_thread(monitor_receiver, connections)).unwrap()
+        }));
+
         Self {
             sender: Mutex::new(sender),
             receiver: Mutex::new(receiver),
             cleanup: Mutex::new(cleanup),
+            monitor: Mutex::new(monitor),
             send_thread,
             receive_thread,
             cleanup_thread,
+            monitor_thread,
             connections,
             socket,
             running: Mutex::new(true),
@@ -108,6 +131,8 @@ impl NetworkInterface {
             send_events(&self.socket, this_address, 0, 0, 0, &[Box::new(ShutdownEvent { })]);
             // Send a shutdown event to the cleanup thread
             self.cleanup.lock().unwrap().send(()).unwrap();
+            // Send a shutdown event to the monitor thread
+            self.monitor.lock().unwrap().send(()).unwrap();
 
             self.send_thread.lock().unwrap().take().unwrap().join().ok();
             self.receive_thread.lock().unwrap().take().unwrap().join().ok();
@@ -348,6 +373,97 @@ fn network_interface_cleanup_thread(
         };
 
         if quit {
+            log!("{} received a shutdown event.", thread::current().name().unwrap());
+            break;
+        }
+    }
+
+    log!("{} exiting.", thread::current().name().unwrap());
+}
+
+fn network_interface_monitor_thread(
+    quit_receiver: mpsc::Receiver<()>,
+    connections: Arc<Mutex<HashMap<SocketAddr, ConnectionData>>>,
+) {
+    log!("{} started.", thread::current().name().unwrap());
+
+    loop {
+        {
+            let mut connections_guard = connections.lock().unwrap();
+            for (address, connection_data) in connections_guard.iter_mut() {
+                let now = Instant::now();
+
+                let duration_since_last_change = now.duration_since(connection_data.last_frequency_change);
+                let duration_since_last_update = now.duration_since(connection_data.last_cooldown_update);
+
+                if connection_data.frequency == HIGH_FREQUENCY {
+                    if connection_data.ping >= LATENCY_THRESHOLD {
+                        if duration_since_last_change < RECOVERY_COOLDOWN_UPDATE_PERIOD {
+                            connection_data.recovery_cooldown = cmp::min(2 * connection_data.recovery_cooldown, MAX_RECOVERY_COOLDOWN);
+                            connection_data.last_cooldown_update = now;
+                        }
+
+                        log!(
+                            INFO,
+                            "{}: Ping to {} is high.",
+                            thread::current().name().unwrap(),
+                            address,
+                        );
+
+                        log!(
+                            INFO,
+                            "{}: ({}) Dropping send frequency to {}Hz until ping is low for at least {}s.",
+                            thread::current().name().unwrap(),
+                            address,
+                            LOW_FREQUENCY,
+                            connection_data.recovery_cooldown.as_secs(),
+                        );
+
+                        connection_data.frequency = LOW_FREQUENCY;
+                        connection_data.last_frequency_change = now;
+                    } else {
+                        if duration_since_last_update >= RECOVERY_COOLDOWN_UPDATE_PERIOD {
+                            connection_data.recovery_cooldown = cmp::max(connection_data.recovery_cooldown / 2, MIN_RECOVERY_COOLDOWN);
+                            connection_data.last_cooldown_update = now;
+
+                            log!(
+                                "{}: Ping to {} has been good for a while; recovery cooldown is now {}s.",
+                                thread::current().name().unwrap(),
+                                address,
+                                connection_data.recovery_cooldown.as_secs(),
+                            );
+                        }
+                    }
+                } else if connection_data.frequency == LOW_FREQUENCY {
+                    if connection_data.ping < LATENCY_THRESHOLD {
+                        if duration_since_last_change >= connection_data.recovery_cooldown {
+                            log!(
+                                INFO,
+                                "{}: Ping to {} has improved.",
+                                thread::current().name().unwrap(),
+                                address,
+                            );
+
+                            log!(
+                                INFO,
+                                "{}: ({}) Raising send frequency to {}Hz.",
+                                thread::current().name().unwrap(),
+                                address,
+                                HIGH_FREQUENCY,
+                            );
+
+                            connection_data.frequency = HIGH_FREQUENCY;
+                            connection_data.last_frequency_change = now;
+                        }
+                    } else {
+                        connection_data.last_frequency_change = now;
+                    }
+                }
+            }
+        }
+
+        // Sleep for half a second and quit if interrupted
+        if quit_receiver.recv_timeout(Duration::from_millis(500)).is_ok() {
             log!("{} received a shutdown event.", thread::current().name().unwrap());
             break;
         }

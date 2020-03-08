@@ -1,11 +1,15 @@
 use std::collections::HashMap;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use crate::event::NetworkEvent;
 use crate::network::PacketHeader;
 
-pub const HIGH_FREQUENCY: u8 = 20;
+pub const HIGH_FREQUENCY: u8 = 30;
 pub const LOW_FREQUENCY: u8 = 10;
+pub const LATENCY_THRESHOLD: f32 = 250.0;
+pub const MIN_RECOVERY_COOLDOWN: Duration = Duration::from_secs(1);
+pub const MAX_RECOVERY_COOLDOWN: Duration = Duration::from_secs(60);
+pub const RECOVERY_COOLDOWN_UPDATE_PERIOD: Duration = Duration::from_secs(10);
 
 pub const PING_SMOOTHING: u16 = 10;
 
@@ -16,11 +20,14 @@ pub struct ConnectionData {
     pub ack: u32,
 
     pub ping: f32,
+    pub last_response_time: Instant,
+
     pub frequency: u8,
+    pub last_frequency_change: Instant,
+    pub last_cooldown_update: Instant,
+    pub recovery_cooldown: Duration,
 
     pub send_accumulator: u128,
-
-    pub last_response_time: Instant,
 
     pub unacked_events: Vec<(Vec<u16>, Instant, Box<dyn NetworkEvent>)>,
     pub packet_times: Vec<(u16, Instant)>,
@@ -29,14 +36,18 @@ pub struct ConnectionData {
 
 impl ConnectionData {
     pub fn new() -> Self {
+        let now = Instant::now();
         Self {
             local_sequence: 0,
             remote_sequence: 0,
             ack: 0,
             ping: 0.0,
+            last_response_time: now,
             frequency: HIGH_FREQUENCY,
+            last_frequency_change: now,
+            last_cooldown_update: now,
+            recovery_cooldown: Duration::from_secs(2),
             send_accumulator: 0,
-            last_response_time: Instant::now(),
             unacked_events: Vec::new(),
             packet_times: Vec::new(),
             incomplete_payloads: HashMap::new(),
