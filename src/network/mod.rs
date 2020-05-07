@@ -5,6 +5,8 @@ use std::thread;
 
 use serde::{Deserialize, Serialize};
 
+use event_derive::NetworkEvent;
+
 use crate::event::NetworkEvent;
 
 use self::cleanup_thread::network_interface_cleanup_thread;
@@ -145,11 +147,8 @@ pub struct ConnectionInfo {
     pub frequency: u8,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, NetworkEvent, Serialize)]
 struct ShutdownEvent { }
-
-#[typetag::serde]
-impl NetworkEvent for ShutdownEvent { }
 
 mod cleanup_thread;
 mod connection_data;
@@ -176,19 +175,13 @@ mod tests {
         static ref CLIENT_ABUSER: SocketAddr = SocketAddr::from_str("127.0.0.1:3332").unwrap();
     }
 
-    #[derive(Debug, Deserialize, Serialize)]
+    #[derive(Clone, Debug, Deserialize, NetworkEvent, Serialize)]
     pub struct DummyEvent { }
 
-    #[typetag::serde]
-    impl NetworkEvent for DummyEvent { }
-
-    #[derive(Debug, Deserialize, Serialize)]
+    #[derive(Clone, Debug, Deserialize, NetworkEvent, Serialize)]
     pub struct DummyDataEvent {
         data: Vec<u8>,
     }
-
-    #[typetag::serde]
-    impl NetworkEvent for DummyDataEvent { }
 
     #[test]
     fn network_interface_receive_event() {

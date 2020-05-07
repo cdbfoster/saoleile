@@ -2,19 +2,15 @@ use std::net::SocketAddr;
 
 use serde::{Deserialize, Serialize};
 
+use event_derive::NetworkEvent;
+
 use crate::event::NetworkEvent;
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, NetworkEvent, Serialize)]
 pub struct DisconnectEvent { }
 
-#[typetag::serde]
-impl NetworkEvent for DisconnectEvent { }
-
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, NetworkEvent, Serialize)]
 pub struct DroppedNetworkEvent {
     pub recipient: SocketAddr,
     pub event: Box<dyn NetworkEvent>,
 }
-
-#[typetag::serde]
-impl NetworkEvent for DroppedNetworkEvent { }

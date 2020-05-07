@@ -1,16 +1,18 @@
 use std::sync::Arc;
 
-use crate::context::Context;
-use crate::event::Event;
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug)]
+use event_derive::{Event, NetworkEvent};
+
+use crate::context::Context;
+
+#[derive(Debug, Event)]
 pub struct ContextEvent {
     pub context: Arc<Context>,
 }
 
-impl Event for ContextEvent { }
-
-#[derive(Debug)]
+#[derive(Debug, Event)]
 pub struct QuitEvent { }
 
-impl Event for QuitEvent { }
+#[derive(Clone, Debug, Deserialize, NetworkEvent, Serialize)]
+pub struct ShutdownEvent { }

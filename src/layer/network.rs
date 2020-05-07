@@ -6,6 +6,8 @@ use std::thread;
 
 use serde::{Deserialize, Serialize};
 
+use event_derive::NetworkEvent;
+
 use crate::context::Context;
 use crate::event::{Event, NetworkEvent};
 use crate::layer::Layer;
@@ -123,7 +125,7 @@ pub mod client {
 
             for event in incoming_events {
                 if event.is_network_event() {
-                    let network_event = event.as_boxed_network_event().unwrap();
+                    let network_event = event.as_network_event().unwrap();
 
                     if send_event(&self.socket, self.remote, network_event).is_err() {
                         log!(ERROR, "client::OutgoingNetworkLayer::filter_gather_events: Could not send event.");
@@ -156,11 +158,8 @@ pub mod client {
     }
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, NetworkEvent, Serialize)]
 struct ShutdownListenerEvent { }
-
-#[typetag::serde]
-impl NetworkEvent for ShutdownListenerEvent { }
 
 fn send_event(socket: &UdpSocket, destination: SocketAddr, event: Box<dyn NetworkEvent>) -> io::Result<usize> {
     let buffer = serde_cbor::to_vec(&event).map_err(|_| io::Error::new(io::ErrorKind::Other, "Could not serialize event"))?;

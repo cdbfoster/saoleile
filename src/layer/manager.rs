@@ -5,7 +5,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use crate::context::Context;
-use crate::event::{Event, EventDispatcher};
+use crate::event::Event;
 use crate::event::core::{ContextEvent, QuitEvent};
 use crate::event::layer::{AddLayerEvent, LayerPosition, RemoveLayerEvent};
 use crate::layer::Layer;
@@ -47,10 +47,8 @@ impl LayerManager {
             *running = false;
         }
     }
-}
 
-impl EventDispatcher for LayerManager {
-    fn dispatch_event(&self, event: Box<dyn Event>) {
+    pub fn dispatch_event(&self, event: Box<dyn Event>) {
         self.events.lock().unwrap().send(event).ok();
     }
 }

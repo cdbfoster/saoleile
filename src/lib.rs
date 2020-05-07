@@ -1,6 +1,7 @@
 #[macro_use]
 pub mod log;
 
+// XXX Fix visibility
 pub mod component;
 pub mod context;
 pub mod entity;

@@ -1,30 +1,29 @@
 use serde::{Deserialize, Serialize};
 
+use event_derive::NetworkEvent;
+
 use crate::component::Component;
-use crate::event::NetworkEvent;
+use crate::event::NetworkEvent as NetworkEventTrait;
 use crate::util::Id;
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, NetworkEvent, Serialize)]
 pub struct ComponentEvent {
-    pub destination: Id,
-    pub payload: Box<dyn NetworkEvent>,
+    pub scene_id: Id,
+    pub entity_id: Id,
+    pub component_id: Id,
+    pub payload: Box<dyn NetworkEventTrait>,
 }
 
-#[typetag::serde]
-impl NetworkEvent for ComponentEvent { }
-
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, NetworkEvent, Serialize)]
 pub struct AddComponentEvent {
+    pub scene_id: Id,
+    pub entity_id: Id,
     pub component: Box<dyn Component>,
 }
 
-#[typetag::serde]
-impl NetworkEvent for AddComponentEvent { }
-
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, NetworkEvent, Serialize)]
 pub struct RemoveComponentEvent {
-    pub id: Id,
+    pub scene_id: Id,
+    pub entity_id: Id,
+    pub component_id: Id,
 }
-
-#[typetag::serde]
-impl NetworkEvent for RemoveComponentEvent { }
