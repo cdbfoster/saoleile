@@ -18,8 +18,17 @@ pub trait AsLayer {
     fn as_boxed_layer(self: Box<Self>) -> Box<dyn Layer>;
 }
 
+// XXX Consider a solution like the event derive stuff
 #[typetag::serde(tag = "layer")]
-pub trait NetworkLayer: AsLayer + Layer { }
+pub trait NetworkLayer: AsLayer + Layer {
+    fn boxed_clone(&self) -> Box<dyn NetworkLayer>;
+}
+
+impl Clone for Box<dyn NetworkLayer> {
+    fn clone(&self) -> Self {
+        self.boxed_clone()
+    }
+}
 
 impl<T: 'static + NetworkLayer> AsLayer for T {
     fn as_boxed_layer(self: Box<Self>) -> Box<dyn Layer> {
