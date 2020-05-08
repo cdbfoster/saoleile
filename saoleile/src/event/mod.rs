@@ -15,6 +15,7 @@ pub mod component;
 pub mod core;
 pub mod layer;
 pub mod network;
+pub mod scene;
 
 pub mod conversion;
 mod util;

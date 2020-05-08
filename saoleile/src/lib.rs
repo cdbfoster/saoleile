@@ -7,6 +7,7 @@ pub mod context;
 pub mod event;
 pub mod layer;
 pub mod network;
+pub mod scene;
 pub mod util;
 
 #[cfg(target_os = "android")]
