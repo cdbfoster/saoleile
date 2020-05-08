@@ -6,7 +6,7 @@ use std::thread;
 
 use serde::{Deserialize, Serialize};
 
-use event_derive::NetworkEvent;
+use saoleile_derive::NetworkEvent;
 
 use crate::context::Context;
 use crate::event::{Event, NetworkEvent};

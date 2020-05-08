@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use event_derive::NetworkEvent;
+use saoleile_derive::NetworkEvent;
 
 use crate::component::Component;
 use crate::event::NetworkEvent as NetworkEventTrait;

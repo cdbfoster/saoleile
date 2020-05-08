@@ -2,7 +2,7 @@ use std::net::SocketAddr;
 
 use serde::{Deserialize, Serialize};
 
-use event_derive::NetworkEvent;
+use saoleile_derive::NetworkEvent;
 
 use crate::event::NetworkEvent;
 

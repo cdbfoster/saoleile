@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 
-use event_derive::{Event, NetworkEvent};
+use saoleile_derive::{Event, NetworkEvent};
 
 use crate::context::Context;
 

@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use event_derive::{Event, NetworkEvent};
+use saoleile_derive::{Event, NetworkEvent};
 
 use crate::layer::{Layer, NetworkLayer};
 use crate::util::Id;
