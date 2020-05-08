@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 use saoleile_derive::NetworkEvent;
 
 use crate::event::NetworkEvent;
+use crate::event::core::ShutdownEvent;
 
 use self::cleanup_thread::network_interface_cleanup_thread;
 use self::connection_data::ConnectionData;
@@ -146,9 +147,6 @@ pub struct ConnectionInfo {
     pub ping: f32,
     pub frequency: u8,
 }
-
-#[derive(Clone, Debug, Deserialize, NetworkEvent, Serialize)]
-struct ShutdownEvent { }
 
 mod cleanup_thread;
 mod connection_data;

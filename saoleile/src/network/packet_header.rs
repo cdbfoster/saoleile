@@ -66,7 +66,7 @@ impl PacketHeader {
     pub fn acked(&self, sequences: &[u16]) -> bool {
         fn sequence_acked(ack_start: u16, ack: u32, sequence: u16) -> bool {
             let distance = wrapped_distance(sequence, ack_start);
-            if distance < 0 {
+            if distance < 0 || distance >= 32 {
                 return false;
             }
 

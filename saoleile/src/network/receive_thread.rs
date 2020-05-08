@@ -5,8 +5,9 @@ use std::thread;
 use std::time::Instant;
 
 use crate::event::NetworkEvent;
+use crate::event::core::ShutdownEvent;
 
-use crate::network::{MAX_PACKET_SIZE, ShutdownEvent};
+use crate::network::MAX_PACKET_SIZE;
 use crate::network::connection_data::{
     ConnectionData,
     PING_SMOOTHING,
