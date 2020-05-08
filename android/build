@@ -27,7 +27,7 @@ PATH=$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin:$PATH
 
 pushd android/jni-wrapper > /dev/null
     CARGO_BUILD_TARGET="aarch64-linux-android" \
-    CARGO_BUILD_TARGET_DIR="../../target" \
+    CARGO_BUILD_TARGET_DIR="${PROJECT_ROOT}/target" \
     CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER="aarch64-linux-android${API_MAJOR_VERSION}-clang" \
     cargo build "$@"
 popd > /dev/null

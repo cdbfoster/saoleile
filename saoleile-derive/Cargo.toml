@@ -1,5 +1,5 @@
 [package]
-name = "event_derive"
+name = "saoleile-derive"
 version = "0.1.0"
 authors = ["Chris Foster <cdbfoster@gmail.com>"]
 edition = "2018"

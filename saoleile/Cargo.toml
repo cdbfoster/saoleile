@@ -6,7 +6,7 @@ edition = "2018"
 
 [dependencies]
 egli = "0.5"
-event_derive = { path = "event_derive" }
+saoleile-derive = { path = "../saoleile-derive" }
 gl = "0.14"
 lazy_static = "1.4"
 serde = "1.0"
@@ -17,7 +17,7 @@ typetag = "0.1"
 winit = "0.20"
 
 [target.'cfg(target_os = "android")'.dependencies]
-log-sys = { path = "android/log-sys" }
+log-sys = { path = "../android/log-sys" }
 
 [lib]
 name = "saoleile"
