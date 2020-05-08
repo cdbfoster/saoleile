@@ -4,8 +4,8 @@ use std::time::{Duration, Instant};
 use crate::event::NetworkEvent;
 use crate::network::PacketHeader;
 
-pub const HIGH_FREQUENCY: u8 = 30;
-pub const LOW_FREQUENCY: u8 = 10;
+pub const HIGH_FREQUENCY: u8 = 40;
+pub const LOW_FREQUENCY: u8 = 20;
 pub const LATENCY_THRESHOLD: f32 = 250.0;
 pub const MIN_RECOVERY_COOLDOWN: Duration = Duration::from_secs(1);
 pub const MAX_RECOVERY_COOLDOWN: Duration = Duration::from_secs(60);
