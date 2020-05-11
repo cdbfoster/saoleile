@@ -1,6 +1,7 @@
 use std::sync::Mutex;
 use std::thread;
 
+#[derive(Debug)]
 pub struct InnerThread(Mutex<Option<thread::JoinHandle<()>>>);
 
 impl InnerThread {
