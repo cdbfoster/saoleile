@@ -9,6 +9,7 @@ use crate::util::{Tick, Id};
 #[derive(Clone, Debug, Deserialize, NetworkEvent, Serialize)]
 pub struct SnapshotEvent {
     pub authority: Id,
+    pub is_correction: bool,
     pub tick: Tick,
     pub events: Vec<Box<dyn NetworkEvent>>,
 }

@@ -7,7 +7,7 @@ use crate::event::Event;
 use crate::event::component::{AddComponentEvent, ComponentEvent, RemoveComponentEvent};
 use crate::event::core::ShutdownEvent;
 use crate::event::scene::{AddEntityEvent, AddSceneEvent, RemoveEntityEvent, RemoveSceneEvent, SnapshotEvent};
-use crate::util::{Id, Time};
+use crate::util::{Id, InnerThread, Time};
 
 use self::event_thread::scene_manager_event_thread;
 
@@ -18,7 +18,7 @@ pub struct SceneManager {
 
     events: Mutex<mpsc::Sender<Box<dyn Event>>>,
     receiver: Mutex<mpsc::Receiver<Box<dyn Event>>>, // For notifying about things like client input mispredictions
-    event_thread: Mutex<Option<thread::JoinHandle<()>>>,
+    event_thread: InnerThread,
     running: Mutex<bool>,
 }
 
@@ -30,7 +30,7 @@ impl SceneManager {
         let (events, events_receiver) = mpsc::channel();
         let (outgoing_events_sender, receiver) = mpsc::channel();
 
-        let event_thread = Mutex::new(Some({
+        let event_thread = InnerThread::new({
             let snapshot_queue = snapshot_queue.clone();
             let scene_stack = scene_stack.clone();
 
@@ -42,7 +42,7 @@ impl SceneManager {
                     events_receiver,
                     outgoing_events_sender,
                 )).unwrap()
-        }));
+        });
 
         Self {
             snapshot_queue,
@@ -154,7 +154,7 @@ impl SceneManager {
         if *running {
             // Send a shutdown event to the event thread
             self.process_event(Box::new(ShutdownEvent { }));
-            self.event_thread.lock().unwrap().take().unwrap().join().ok();
+            self.event_thread.join();
             *running = false;
         }
     }

@@ -145,6 +145,8 @@ impl Drop for NetworkInterface {
 pub struct ConnectionInfo {
     pub address: SocketAddr,
     pub ping: f32,
+    //pub send_kbps: f32,
+    //pub receive_kpbs: f32,
     pub frequency: u8,
 }
 

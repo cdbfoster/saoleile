@@ -16,7 +16,7 @@ pub fn scene_manager_event_thread(
         let event = events_receiver.recv().unwrap();
 
         if event.as_any().is::<SnapshotEvent>() {
-            // XXX
+            //
         } else if event.as_any().is::<ShutdownEvent>() {
             break;
         }

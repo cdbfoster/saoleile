@@ -63,6 +63,8 @@ pub mod client {
 
                     if address == socket.local_addr().unwrap() {
                         sender.send(event).unwrap();
+                    } else {
+                        log!(INFO, "client::IncomingNetworkLayer listening thread received an event from someone other than the server: {}", address);
                     }
                 }
             });

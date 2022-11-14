@@ -20,6 +20,8 @@ pub struct ConnectionData {
     pub ack: u32,
 
     pub ping: f32,
+    //pub send_kbps: f32,
+    //pub receive_kbps: f32,
     pub last_response_time: Instant,
 
     pub frequency: u8,
@@ -28,6 +30,8 @@ pub struct ConnectionData {
     pub recovery_cooldown: Duration,
 
     pub send_accumulator: u128,
+    //pub sent_bits_accumulator: u64,
+    //pub received_bits_accumulator: u64,
 
     pub unacked_events: Vec<(Vec<u16>, Instant, Box<dyn NetworkEvent>)>,
     pub packet_times: Vec<(u16, Instant)>,

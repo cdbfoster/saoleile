@@ -25,7 +25,7 @@ impl LayerManager {
         let (sender, receiver) = mpsc::channel();
         let layers = Arc::new(RwLock::new(LayerStack::new()));
 
-        let thread = {
+        let thread = { // XXX Use thread names in log messages
             let layers = layers.clone();
             thread::spawn(move || layer_manager_event_thread(receiver, layers))
         };
@@ -143,14 +143,14 @@ fn layer_manager_layer_thread(receiver: mpsc::Receiver<Box<dyn Event>>, context:
             }
         }
 
-        if accumulated_time > ITERATION_NS as u128 {
+        if accumulated_time >= ITERATION_NS as u128 {
             let mut passed_events = Vec::new();
             for mut layer in context.layer_manager.lock_view_mut().iter_mut() {
                 passed_events = layer.filter_gather_events(&context, passed_events);
             }
 
             // The exact number of iterations we run isn't important, so just clear the counter.
-            accumulated_time = 0;
+            accumulated_time = 0; // XXX This should subtract and then mod ITERATION_NS instead of clearing
         }
 
         let current_time = Instant::now();
@@ -161,7 +161,7 @@ fn layer_manager_layer_thread(receiver: mpsc::Receiver<Box<dyn Event>>, context:
         // Sleep for half the remaining time.
         // Sleeping is never exact, so we don't want to overshoot.
         if accumulated_time < ITERATION_NS as u128 {
-            thread::sleep(Duration::from_nanos((ITERATION_NS as u64 - accumulated_time as u64) / 2));
+            thread::sleep(Duration::from_nanos((ITERATION_NS as u64 - accumulated_time as u64) / 2)); // XXX This should cast to u128 before dividing
         }
     }
 }
